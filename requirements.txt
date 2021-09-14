@@ -1,0 +1,7 @@
+numpy
+os
+pickle
+shlex
+subprocess
+urllib
+zipfile
