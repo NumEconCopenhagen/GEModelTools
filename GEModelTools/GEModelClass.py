@@ -2,6 +2,7 @@ import time
 from types import SimpleNamespace
 from copy import deepcopy
 import numpy as np
+import joblib
 
 from consav import jit
 from consav.misc import elapsed
@@ -483,7 +484,7 @@ class GEModelClass:
         # reset
         self.path = path_original
 
-    def compute_jac(self,h=1e-4,do_print=False):
+    def compute_jac(self,h=1e-4,do_print=False,parallel=False,N_workers=8):
         """ compute full jacobian """
         
         t0 = time.time()
@@ -510,12 +511,39 @@ class GEModelClass:
         # c. calculate
         jac = self.jac = np.zeros((x_ss.size,x_ss.size))
 
-        for i in range(x_ss.size):   
+        if parallel:
 
-            x0 = x_ss.ravel().copy()
-            x0[i] += h
-            
-            jac[:,i] = (self._path_obj(x0.reshape(x_shape),use_jac_hh=True)-base)/h
+            # i. setup for parallelization
+            model_dict = self.as_dict()
+            ModelClass = self.__class__
+
+            N_tasks = x_ss.size
+            step = N_tasks//N_workers
+
+            indices = [(0+step*i,np.fmin(step*(i+1),N_tasks)) for i in range(N_workers + (N_tasks%N_workers != 0))]
+            N_workers_ = len(indices)
+
+            # ii. calculate jacobian chunks
+            tasks = (joblib.delayed(_fill_out_jac)(ModelClass,model_dict,x_ss,x_shape,h,indices[i][0],indices[i][1]) 
+                for i in range(N_workers_))
+
+            objs = joblib.Parallel(n_jobs=N_workers_)(tasks)
+
+            # iii. fill in jacobian from parallelized chunks
+            for i in range(N_workers_):
+
+                i_start = indices[i][0]
+                i_end = indices[i][1]
+                jac[:,i_start:i_end] = (objs[i]-base[:,np.newaxis])/h
+
+        else:
+
+            for i in range(x_ss.size):   
+
+                x0 = x_ss.ravel().copy()
+                x0[i] += h
+                
+                jac[:,i] = (self._path_obj(x0.reshape(x_shape),use_jac_hh=True)-base)/h
         
         if do_print: print(f'full Jacobian computed in {elapsed(t0)}')
 
@@ -681,3 +709,21 @@ class GEModelClass:
 
         print(f'{up_passing = }')
         print(f'{down_passing = }')
+
+def _fill_out_jac(ModelClass,model_dict,x_ss,x_shape,h,i_start,i_end):
+
+    # a. create model from dict
+    model = ModelClass(from_dict=model_dict)
+
+    # b. get indexes for chunks and allocate chunk container
+    objs = np.zeros((x_ss.size,i_end-i_start))
+
+    # b. calculate jacobian slice ( loop in other way)
+    for i in range(i_end-i_start):
+        
+        x0 = x_ss.ravel().copy()
+        x0[i_start + i] += h
+
+        objs[:,i] = model._path_obj(x0.reshape(x_shape),use_jac_hh=True)
+    
+    return objs
