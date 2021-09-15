@@ -49,6 +49,8 @@ class GEModelClass:
             par.__dict__.setdefault(f'jump_{varname}',0.0)
             par.__dict__.setdefault(f'rho_{varname}',0.0)
 
+        assert hasattr(self.par,'Nz'), 'par.Nz must be specified'
+
         not_floats = ['transition_T','max_iter_solve','max_iter_simulate','max_iter_broyden'] 
         not_floats += [f'N{varname}' for varname in self.grids_hh] + ['Nz']
 
@@ -120,7 +122,7 @@ class GEModelClass:
         sim.path_D = np.zeros(path_sol_shape)
 
         # f. allocate path variables
-        path_shape = (par.transition_T)
+        path_shape = (par.transition_T,len(self.inputs_endo)*par.transition_T)
         for varname in self.varlist:
             setattr(self.ss,varname,np.nan)
             setattr(self.path,varname,np.zeros(path_shape))
@@ -136,6 +138,14 @@ class GEModelClass:
         """ create grids """
 
         create_grids(self)
+
+    def print_unpack_varlist(self):
+        """ print varlist for use in evaluate_transition_path() """
+
+        print(f'    for thread in nb.prange(threads):\n')
+        print('        # unpack')
+        for varname in self.varlist:
+            print(f'        {varname} = path.{varname}[:,thread]')
 
     ####################
     # 2. steady state #
@@ -249,7 +259,7 @@ class GEModelClass:
 
             ssvalue = getattr(self.ss,inputname)
             patharray = getattr(self.path,inputname)
-            patharray[:] = ssvalue
+            patharray[:,:] = ssvalue
 
     def _set_inputs_exo_ss(self):
         """ set endogenous  inputs to steady state """
@@ -258,7 +268,7 @@ class GEModelClass:
 
             ssvalue = getattr(self.ss,inputname)
             patharray = getattr(self.path,inputname)
-            patharray[:] = ssvalue
+            patharray[:,:] = ssvalue
 
     def _set_inputs_endo_ss(self):
         """ set endogenous  inputs to steady state """
@@ -267,7 +277,7 @@ class GEModelClass:
 
             ssvalue = getattr(self.ss,inputname)
             patharray = getattr(self.path,inputname)
-            patharray[:] = ssvalue
+            patharray[:,:] = ssvalue
 
     def _calc_jac_hh_simple(self,shockname,dshock=1e-4,do_print=False,jac_hh=None):
         """ compute jacobian of household problem """
@@ -275,7 +285,6 @@ class GEModelClass:
         par = self.par
         sol = self.sol
         sim = self.sim
-        path = self.path
         jac_hh = self.jac_hh if jac_hh is None else jac_hh
         
         t0 = time.time()
@@ -291,7 +300,7 @@ class GEModelClass:
 
         if not shockname == '__ghost':
             shockarray = getattr(self.path,shockname)
-            shockarray[-1] += dshock
+            shockarray[-1,0] += dshock
 
         self.solve_hh_path()
         sol_shock = deepcopy(self.sol)
@@ -363,7 +372,7 @@ class GEModelClass:
 
         if not shockname == '__ghost':
             shockarray = getattr(self.path,shockname)
-            shockarray[-1] += dshock
+            shockarray[-1,0] += dshock
 
         self.solve_hh_path(do_print=False)
 
@@ -484,7 +493,7 @@ class GEModelClass:
         # reset
         self.path = path_original
 
-    def compute_jac(self,h=1e-4,do_print=False,parallel=False,N_workers=8):
+    def compute_jac(self,h=1e-4,do_print=False,parallel=True):
         """ compute full jacobian """
         
         t0 = time.time()
@@ -513,28 +522,15 @@ class GEModelClass:
 
         if parallel:
 
-            # i. setup for parallelization
-            model_dict = self.as_dict()
-            ModelClass = self.__class__
+            x0 = np.zeros((x_ss.size,x_ss.size))
+            for i in range(x_ss.size):   
 
-            N_tasks = x_ss.size
-            step = N_tasks//N_workers
+                x0[:,i] = x_ss.ravel().copy()
+                x0[i,i] += h
 
-            indices = [(0+step*i,np.fmin(step*(i+1),N_tasks)) for i in range(N_workers + (N_tasks%N_workers != 0))]
-            N_workers_ = len(indices)
+            errors = self._path_obj(x0,parallel=True,use_jac_hh=True)
 
-            # ii. calculate jacobian chunks
-            tasks = (joblib.delayed(_fill_out_jac)(ModelClass,model_dict,x_ss,x_shape,h,indices[i][0],indices[i][1]) 
-                for i in range(N_workers_))
-
-            objs = joblib.Parallel(n_jobs=N_workers_)(tasks)
-
-            # iii. fill in jacobian from parallelized chunks
-            for i in range(N_workers_):
-
-                i_start = indices[i][0]
-                i_end = indices[i][1]
-                jac[:,i_start:i_end] = (objs[i]-base[:,np.newaxis])/h
+            jac[:,:] = (errors.reshape((x_ss.size,x_ss.size))-base)/h
 
         else:
 
@@ -543,7 +539,7 @@ class GEModelClass:
                 x0 = x_ss.ravel().copy()
                 x0[i] += h
                 
-                jac[:,i] = (self._path_obj(x0.reshape(x_shape),use_jac_hh=True)-base)/h
+                jac[:,i] = (self._path_obj(x0,use_jac_hh=True)-base)/h
         
         if do_print: print(f'full Jacobian computed in {elapsed(t0)}')
 
@@ -574,49 +570,74 @@ class GEModelClass:
             ssvalue = getattr(self.ss,inputname)
             patharray = getattr(self.path,inputname)
             
-            patharray[:T] = ssvalue*fac
-            patharray[T:] = ssvalue
+            patharray[:T,:] = ssvalue*fac[:,np.newaxis]
+            patharray[T:,:] = ssvalue
 
-    def evaluate_transition_path(self,use_jac_hh=False):
+    def evaluate_transition_path(self,threads=1,use_jac_hh=False):
         """ evaluate transition path """
 
         with jit(self) as model:
             evaluate_transition_path(
                 model.par,model.sol,model.sim,
                 model.ss,model.path,
-                model.jac_hh,use_jac_hh=use_jac_hh)    
+                model.jac_hh,threads=threads,use_jac_hh=use_jac_hh)    
         
-    def _path_obj(self,x,use_jac_hh=False,do_print=False):
+    def _path_obj(self,x,use_jac_hh=False,parallel=False,do_print=False):
         """ objective when solving for transition path """
         
+        if parallel: 
+            assert use_jac_hh
+            assert not x is None
+
         par = self.par
         path = self.path
 
-        # a. set path for endogenous inputs
-        if not x is None:
-            x = x.reshape((len(self.inputs_endo),par.transition_T))
+        if parallel:
+
+            # a. set path for endogenous inputs
+            x = x.reshape((len(self.inputs_endo),par.transition_T,len(self.inputs_endo)*self.par.transition_T))
             for i,varname in enumerate(self.inputs_endo):
-                setattr(path,varname,x[i,:])
+                array = getattr(path,varname)                    
+                array[:,:] = x[i,:,:]
 
-        # b. evaluate
-        self.evaluate_transition_path(use_jac_hh=use_jac_hh)
+            # b. evaluate
+            self.evaluate_transition_path(threads=len(self.inputs_endo)*self.par.transition_T,use_jac_hh=use_jac_hh)
 
-        # c. errors
-        errors = np.zeros((len(self.targets),self.par.transition_T))
-        for i,varname in enumerate(self.targets):
-            errors[i,:] = getattr(self.path,varname)
+            # c. errors
+            errors = np.zeros((len(self.targets),self.par.transition_T,len(self.inputs_endo)*self.par.transition_T))
+            for i,varname in enumerate(self.targets):
+                errors[i,:,:] = getattr(self.path,varname)
 
-        if do_print: 
-            
-            max_abs_error = np.max(np.abs(errors))
+            return errors
 
-            for k in self.targets:
-                v = getattr(self.path,k)
-                print(f'{k:10s} = {np.max(np.abs(v)):12.8f}')
+        else:
 
-            print(f'\nmax abs. error: {max_abs_error:12.8f}')
-    
-        return errors.ravel()
+            # a. set path for endogenous inputs
+            if not x is None:
+                x = x.reshape((len(self.inputs_endo),par.transition_T))
+                for i,varname in enumerate(self.inputs_endo):
+                    array = getattr(path,varname)                    
+                    array[:,0] = x[i,:]
+
+            # b. evaluate
+            self.evaluate_transition_path(use_jac_hh=use_jac_hh)
+
+            # c. errors
+            errors = np.zeros((len(self.targets),self.par.transition_T))
+            for i,varname in enumerate(self.targets):
+                errors[i,:] = getattr(self.path,varname)[:,0]
+
+            if do_print: 
+                
+                max_abs_error = np.max(np.abs(errors))
+
+                for k in self.targets:
+                    v = getattr(self.path,k)
+                    print(f'{k:10s} = {np.max(np.abs(v)):12.8f}')
+
+                print(f'\nmax abs. error: {max_abs_error:12.8f}')
+        
+            return errors.ravel()
 
     def find_transition_path(self,do_print=False):
         """ find transiton path """
@@ -709,21 +730,3 @@ class GEModelClass:
 
         print(f'{up_passing = }')
         print(f'{down_passing = }')
-
-def _fill_out_jac(ModelClass,model_dict,x_ss,x_shape,h,i_start,i_end):
-
-    # a. create model from dict
-    model = ModelClass(from_dict=model_dict)
-
-    # b. get indexes for chunks and allocate chunk container
-    objs = np.zeros((x_ss.size,i_end-i_start))
-
-    # b. calculate jacobian slice ( loop in other way)
-    for i in range(i_end-i_start):
-        
-        x0 = x_ss.ravel().copy()
-        x0[i_start + i] += h
-
-        objs[:,i] = model._path_obj(x0.reshape(x_shape),use_jac_hh=True)
-    
-    return objs
