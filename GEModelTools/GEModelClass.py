@@ -544,16 +544,16 @@ class GEModelClass:
         jac = self.jac = np.zeros((x_ss.size,x_ss.size))
 
         if parallel:
-
+            
             x0 = np.zeros((x_ss.size,x_ss.size))
             for i in range(x_ss.size):   
 
-                x0[i,:] = x_ss.ravel().copy()
+                x0[:,i] = x_ss.ravel().copy()
                 x0[i,i] += h
 
             errors = self._path_obj(x0,parallel=True,use_jac_hh=True)
 
-            jac[:,:] = (errors.reshape((x_ss.size,x_ss.size)).T-base)/h
+            jac[:,:] = (errors.reshape((x_ss.size,x_ss.size))-base)/h
 
         else:
 
@@ -621,7 +621,7 @@ class GEModelClass:
             x = x.reshape((len(self.inputs_endo),par.transition_T,len(self.inputs_endo)*self.par.transition_T))
             for i,varname in enumerate(self.inputs_endo):
                 array = getattr(path,varname)                    
-                array[:,:] = x[i,:,:]
+                array[:,:] = x[i,:,:].T
 
             # b. evaluate
             self.evaluate_path(threads=len(self.inputs_endo)*self.par.transition_T,use_jac_hh=use_jac_hh)
@@ -629,7 +629,7 @@ class GEModelClass:
             # c. errors
             errors = np.zeros((len(self.targets),self.par.transition_T,len(self.inputs_endo)*self.par.transition_T))
             for i,varname in enumerate(self.targets):
-                errors[i,:,:] = getattr(self.path,varname)
+                errors[i,:,:] = getattr(self.path,varname).T
 
             return errors
 
