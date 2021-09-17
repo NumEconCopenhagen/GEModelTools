@@ -28,6 +28,24 @@ def find_i_and_w_1d_1d(pol1,grid1,i,w):
                 # d. bound simulation at upper grid point
                 w[i_fix,i_z,i_endo] = np.fmin(w[i_fix,i_z,i_endo],1.0)
 
+@nb.njit
+def find_i_and_w_1d_1d_path(transition_T,path_pol1,grid1,path_i,path_w):
+    """ find indices and weights for simulation along transition path"""
+
+    for k in range(transition_T):
+
+        t = (transition_T-1)-k
+
+        find_i_and_w_1d_1d(path_pol1[t],grid1,path_i[t],path_w[t])
+
+    return k
+
+@nb.jit
+def prepare_simulation_1d_1d(par,sol,path_pol1,grid1):
+    """ find indices and weights for simulation along transition path"""
+
+    find_i_and_w_1d_1d_path(par.transition_T,path_pol1,grid1,sol.path_i,sol.path_w)
+
 @nb.njit(parallel=True)   
 def simulate_hh_forwards(D_lag,i,w,z_trans_T,D):
     """ simulate given indices and weights """

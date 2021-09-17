@@ -26,7 +26,6 @@ def winding_criterion(A, N=4096):
     det_Alambda = detA_path(A, N)
     return winding_number(det_Alambda.real, det_Alambda.imag)
 
-
 def detA_path(A, N=4096):
     """Evaluates det A(lambda) at N equispaced points lambda on interval [0,2pi].
     A brief derivation of how this function uses FFT to rapidly evaluate det A(lambda) follows.
@@ -61,7 +60,6 @@ def detA_path(A, N=4096):
     det_Alambda[N//2+1:] = det_Alambda[:(N+1)//2][::-1].conj()
 
     return det_Alambda
-
 
 @njit
 def winding_number(x, y):

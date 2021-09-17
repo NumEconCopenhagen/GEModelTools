@@ -1,21 +1,24 @@
+# contains main GEModelClass
+
 import time
 from types import SimpleNamespace
 from copy import deepcopy
 import numpy as np
-import joblib
 
 from consav import jit
 from consav.misc import elapsed
 
-from .simulate import find_i_and_w_1d_1d, simulate_hh_forwards, simulate_hh_forwards_transpose, simulate_hh_path, simulate_hh_ss
+from .simulate import find_i_and_w_1d_1d, find_i_and_w_1d_1d_path
+from .simulate import simulate_hh_forwards, simulate_hh_forwards_transpose
+from .simulate import simulate_hh_path, simulate_hh_ss
 from .broyden_solver import broyden_solver
 from .figures import show_IRFs
 from .determinancy import winding_criterion
 
-from grids import create_grids
-from household_problem import solve_hh_ss, solve_hh_path
-from steady_state import find_ss
-from transition_path import evaluate_transition_path
+import grids
+import household_problem
+import steady_state
+import transition_path
 
 class GEModelClass:
 
@@ -51,6 +54,7 @@ class GEModelClass:
 
         assert hasattr(self.par,'Nz'), 'par.Nz must be specified'
 
+        # automatic not-floats
         not_floats = ['transition_T','max_iter_solve','max_iter_simulate','max_iter_broyden'] 
         not_floats += [f'N{varname}' for varname in self.grids_hh] + ['Nz']
 
@@ -122,7 +126,7 @@ class GEModelClass:
         sim.path_D = np.zeros(path_sol_shape)
 
         # f. allocate path variables
-        path_shape = (par.transition_T,len(self.inputs_endo)*par.transition_T)
+        path_shape = (len(self.inputs_endo)*par.transition_T,par.transition_T)
         for varname in self.varlist:
             setattr(self.ss,varname,np.nan)
             setattr(self.path,varname,np.zeros(path_shape))
@@ -137,15 +141,15 @@ class GEModelClass:
     def create_grids(self):
         """ create grids """
 
-        create_grids(self)
+        grids.create_grids(self)
 
     def print_unpack_varlist(self):
-        """ print varlist for use in evaluate_transition_path() """
+        """ print varlist for use in evaluate_path() """
 
         print(f'    for thread in nb.prange(threads):\n')
         print('        # unpack')
         for varname in self.varlist:
-            print(f'        {varname} = path.{varname}[:,thread]')
+            print(f'        {varname} = path.{varname}[thread,:]')
 
     ####################
     # 2. steady state #
@@ -159,24 +163,29 @@ class GEModelClass:
         # a. create (or re-create) grids
         self.create_grids()
 
-        # b. initial guess
+        # b. solve
         with jit(self) as model:
             
             par = model.par
             sol = model.sol
             ss = model.ss
 
-            # c. solve
-            it = solve_hh_ss(par,sol,ss)
+            it = household_problem.solve_hh_ss(par,sol,ss)
         
             if do_print:
                 print(f'household problem in ss solved in {elapsed(t0)} [{it} iterations]')
 
-            # d. indices and weights    
-            if len(self.grids_hh) == 1 and len(self.pols_hh) == 1:
-                find_i_and_w_1d_1d(sol.a,par.a_grid,sol.i,sol.w)
-            else:
-                raise ValueError('not implemented')
+        # d. indices and weights    
+        par = model.par
+        sol = model.sol
+        ss = model.ss
+
+        if len(self.grids_hh) == 1 and len(self.pols_hh) == 1:
+            pol1 = getattr(sol,f'{self.pols_hh[0]}')
+            grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
+            find_i_and_w_1d_1d(pol1,grid1,sol.i,sol.w)
+        else:
+            raise ValueError('not implemented')
 
     def simulate_hh_ss(self,do_print=False):
         """ simulate the household problem in steady state """
@@ -216,7 +225,7 @@ class GEModelClass:
     def find_ss(self,do_print=False):
         """ solve for the model steady state """
 
-        find_ss(self,do_print=do_print)
+        steady_state.find_ss(self,do_print=do_print)
 
     #####################
     # 3. household path #
@@ -226,9 +235,23 @@ class GEModelClass:
         """ gateway for solving the household problem along the transition path """
 
         t0 = time.time()
-    
+
+        # a. solve
         with jit(self) as model:
-            solve_hh_path(model.par,model.sol,model.path)
+            
+            household_problem.solve_hh_path(model.par,model.sol,model.path)
+
+        # b. indices and weights
+        par = self.par
+        sol = self.sol
+        ss = self.ss
+
+        if len(self.grids_hh) == 1 and len(self.pols_hh) == 1:
+            path_pol1 = getattr(sol,f'path_{self.pols_hh[0]}')
+            grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
+            find_i_and_w_1d_1d_path(par.transition_T,path_pol1,grid1,sol.path_i,sol.path_w)
+        else:
+            raise ValueError('not implemented')
 
         if do_print:
             print(f'household problem solved along transition path in {elapsed(t0)}')
@@ -300,7 +323,7 @@ class GEModelClass:
 
         if not shockname == '__ghost':
             shockarray = getattr(self.path,shockname)
-            shockarray[-1,0] += dshock
+            shockarray[0,-1] += dshock
 
         self.solve_hh_path()
         sol_shock = deepcopy(self.sol)
@@ -372,7 +395,7 @@ class GEModelClass:
 
         if not shockname == '__ghost':
             shockarray = getattr(self.path,shockname)
-            shockarray[-1,0] += dshock
+            shockarray[0,-1] += dshock
 
         self.solve_hh_path(do_print=False)
 
@@ -525,12 +548,12 @@ class GEModelClass:
             x0 = np.zeros((x_ss.size,x_ss.size))
             for i in range(x_ss.size):   
 
-                x0[:,i] = x_ss.ravel().copy()
+                x0[i,:] = x_ss.ravel().copy()
                 x0[i,i] += h
 
             errors = self._path_obj(x0,parallel=True,use_jac_hh=True)
 
-            jac[:,:] = (errors.reshape((x_ss.size,x_ss.size))-base)/h
+            jac[:,:] = (errors.reshape((x_ss.size,x_ss.size)).T-base)/h
 
         else:
 
@@ -570,14 +593,14 @@ class GEModelClass:
             ssvalue = getattr(self.ss,inputname)
             patharray = getattr(self.path,inputname)
             
-            patharray[:T,:] = ssvalue*fac[:,np.newaxis]
-            patharray[T:,:] = ssvalue
+            patharray[:,:T] = ssvalue*fac[np.newaxis,:]
+            patharray[:,T:] = ssvalue
 
-    def evaluate_transition_path(self,threads=1,use_jac_hh=False):
+    def evaluate_path(self,threads=1,use_jac_hh=False):
         """ evaluate transition path """
 
         with jit(self) as model:
-            evaluate_transition_path(
+            transition_path.evaluate_path(
                 model.par,model.sol,model.sim,
                 model.ss,model.path,
                 model.jac_hh,threads=threads,use_jac_hh=use_jac_hh)    
@@ -601,7 +624,7 @@ class GEModelClass:
                 array[:,:] = x[i,:,:]
 
             # b. evaluate
-            self.evaluate_transition_path(threads=len(self.inputs_endo)*self.par.transition_T,use_jac_hh=use_jac_hh)
+            self.evaluate_path(threads=len(self.inputs_endo)*self.par.transition_T,use_jac_hh=use_jac_hh)
 
             # c. errors
             errors = np.zeros((len(self.targets),self.par.transition_T,len(self.inputs_endo)*self.par.transition_T))
@@ -617,15 +640,15 @@ class GEModelClass:
                 x = x.reshape((len(self.inputs_endo),par.transition_T))
                 for i,varname in enumerate(self.inputs_endo):
                     array = getattr(path,varname)                    
-                    array[:,0] = x[i,:]
+                    array[0,:] = x[i,:]
 
             # b. evaluate
-            self.evaluate_transition_path(use_jac_hh=use_jac_hh)
+            self.evaluate_path(use_jac_hh=use_jac_hh)
 
             # c. errors
             errors = np.zeros((len(self.targets),self.par.transition_T))
             for i,varname in enumerate(self.targets):
-                errors[i,:] = getattr(self.path,varname)[:,0]
+                errors[i,:] = getattr(self.path,varname)[0,:]
 
             if do_print: 
                 
@@ -671,13 +694,29 @@ class GEModelClass:
     ########
 
     def show_IRFs(self,paths,abs_value=[],do_inputs=True,do_targets=True,T_max=None):
+        """ shows IRFS """
+
+        # paths: list[str], variable names
+        # abs_value: list[str], variable names to be shown as absolute difference to ss (defaulte is in % if ss is not nan)
+        # do_inputs: boolean, show IRFs for the inputs
+        # do_targets: boolean, show IRFs for the targets
+        # T_max: int, length of IRF
 
         models = [self]
         labels = [None]
         show_IRFs(models,labels,paths,abs_value=abs_value,do_inputs=do_inputs,do_targets=do_targets,T_max=T_max)
 
     def compare_IRFs(self,models,labels,paths,abs_value=[],do_inputs=True,do_targets=True,T_max=None):
+        """ compare IRFs across models """
 
+        # models: list[GEModelClass], models
+        # labels: list[str], model names
+        # paths: list[str], variable names
+        # abs_value: list[str], variable names to be shown as absolute difference to ss (defaulte is in % if ss is not nan)
+        # do_inputs: boolean, show IRFs for the inputs
+        # do_targets: boolean, show IRFs for the targets
+        # T_max: int, length of IRF
+                 
         show_IRFs(models,labels,paths,abs_value=abs_value,do_inputs=do_inputs,do_targets=do_targets,T_max=T_max)
 
     ################

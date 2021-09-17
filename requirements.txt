@@ -5,3 +5,7 @@ shlex
 subprocess
 urllib
 zipfile
+matplotlib
+numba
+consav
+EconModel

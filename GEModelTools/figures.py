@@ -1,3 +1,5 @@
+# contains functions for plotting
+
 import numpy as np
 
 import matplotlib.pyplot as plt
@@ -36,7 +38,7 @@ def show_IRFs(models,labels,paths,abs_value=[],do_inputs=True,do_targets=True,T_
             
             for label,model_ in zip(labels,models):
             
-                pathvalue = getattr(model_.path,varname)[:,0]            
+                pathvalue = getattr(model_.path,varname)[0,:]            
                 
                 if not np.isnan(getattr(model_.ss,varname)):
 
