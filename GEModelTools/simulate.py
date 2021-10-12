@@ -123,7 +123,8 @@ def simulate_hh_ss(par,sol,sim):
     """ simulate forward to steady state """
 
     # a. prepare
-    z_trans_T = par.z_trans_ss.T.copy()
+    z_trans = par.z_trans_ss*par.z_trans_ss_sim_adj
+    z_trans_T = z_trans.T.copy()    
     D_lag = np.zeros(sim.D.shape)
 
     # b. iterate
@@ -144,18 +145,28 @@ def simulate_hh_ss(par,sol,sim):
             raise ValueError('simulate_hh_ss(), too many iterations')
 
 @nb.njit
-def simulate_hh_path(par,sol,sim):
+def simulate_hh_path(par,sol,sim,z_trans_ini=None):
     """ simulate along path """
 
+    # a. initial distribution
+    if z_trans_ini is None:
+        D_ini = sim.D
+    else:
+        D_ini = np.zeros(sim.D.shape)
+        z_trans_ini_T = z_trans_ini.T.copy() 
+        simulate_hh_forwards(sim.D,sol.i,sol.w,z_trans_ini_T,D_ini)        
+
+    # b. path
     for t in range(par.transition_T):
         
         z_trans_T = par.z_trans_path[t].T.copy()
 
         # a. lag
         if t == 0:
-            D_lag = sim.D # steadt state
+            D_lag = D_ini
         else:
             D_lag = sim.path_D[t-1]
+
 
         # b. unpack
         path_i = sol.path_i[t]

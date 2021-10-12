@@ -105,6 +105,10 @@ class GEModelClass:
         par.z_grid_path = np.zeros((par.transition_T,par.Nz))
         par.z_trans_path = np.zeros((par.transition_T,par.Nz,par.Nz))        
 
+        # adjustment when using permanent shocks as in Harmenber (2021)
+        par.z_trans_ss_sim_adj = np.ones((par.Nz,par.Nz))
+        par.z_trans_path_sim_adj = np.ones((par.transition_T,par.Nz,par.Nz))
+
         # d. allocate household variables
         for varname in self.varlist_hh:
 
@@ -216,7 +220,7 @@ class GEModelClass:
             par = model.par
             sol = model.sol
             sim = model.sim
-
+            
             it = simulate_hh_ss(par,sol,sim)
 
         if do_print:
@@ -239,7 +243,7 @@ class GEModelClass:
         # a. solve
         with jit(self) as model:
             
-            household_problem.solve_hh_path(model.par,model.sol,model.path)
+            household_problem.solve_hh_path(model.par,model.sol,model.ss,model.path)
 
         # b. indices and weights
         par = self.par
