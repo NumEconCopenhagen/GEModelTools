@@ -213,7 +213,7 @@ class GEModelClass:
                 sim.D[i_fix,:,0,0,0] = par.z_ergodic_ss/Nfix
             else:
                 raise ValueError('not implemented')
-
+    
         # b. simulate
         with jit(self) as model:
 
@@ -607,8 +607,24 @@ class GEModelClass:
             transition_path.evaluate_path(
                 model.par,model.sol,model.sim,
                 model.ss,model.path,
-                model.jac_hh,threads=threads,use_jac_hh=use_jac_hh)    
+                model.jac_hh,threads=threads,use_jac_hh=use_jac_hh)   
+
+    def evaluate_hh_frac_path(self,lower,upper,threads=1):
+        """ evaluate transition path """
         
+        D_copy = deepcopy(self.sim.D)
+        sol_path_i_copy = deepcopy(self.sol.path_i)
+        sol_path_w_copy = deepcopy(self.sol.path_w) 
+
+        with jit(self) as model:
+            transition_path.evaluate_hh_frac_path(
+                model.par,model.sol,model.sim,model.path,
+                lower=lower,upper=upper,threads=threads)  
+
+        self.sim.D[:] = D_copy[:]
+        self.sol.path_i[:] = sol_path_i_copy[:]
+        self.sol.path_w[:] = sol_path_w_copy[:]
+
     def _path_obj(self,x,use_jac_hh=False,parallel=False,do_print=False):
         """ objective when solving for transition path """
         
