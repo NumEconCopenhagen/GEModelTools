@@ -5,15 +5,20 @@ from types import SimpleNamespace
 from copy import deepcopy
 import numpy as np
 
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-whitegrid')
+prop_cycle = plt.rcParams['axes.prop_cycle']
+colors = prop_cycle.by_key()['color']
+plt.rcParams.update({'font.size':12})
+
 from consav import jit
 from consav.misc import elapsed
 
 from .simulate import find_i_and_w_1d_1d, find_i_and_w_1d_1d_path
-from .simulate import simulate_hh_forwards, simulate_hh_forwards_transpose
+from .simulate import simulate_hh_initial_distribution, simulate_hh_forwards, simulate_hh_forwards_transpose
 from .simulate import simulate_hh_path, simulate_hh_ss
 from .broyden_solver import broyden_solver
 from .figures import show_IRFs
-from .determinancy import winding_criterion
 
 import grids
 import household_problem
@@ -104,10 +109,6 @@ class GEModelClass:
         
         par.z_grid_path = np.zeros((par.transition_T,par.Nz))
         par.z_trans_path = np.zeros((par.transition_T,par.Nz,par.Nz))        
-
-        # adjustment when using permanent shocks as in Harmenber (2021)
-        par.z_trans_ss_sim_adj = np.ones((par.Nz,par.Nz))
-        par.z_trans_path_sim_adj = np.ones((par.transition_T,par.Nz,par.Nz))
 
         # d. allocate household variables
         for varname in self.varlist_hh:
@@ -275,10 +276,6 @@ class GEModelClass:
         if do_print:
             print(f'household problem simulated along transition in {elapsed(t0)}')
 
-    ################
-    # 4. Jacobians #
-    ################
-
     def _set_inputs_hh_ss(self):
         """ set household inputs to steady state """
 
@@ -287,6 +284,40 @@ class GEModelClass:
             ssvalue = getattr(self.ss,inputname)
             patharray = getattr(self.path,inputname)
             patharray[:,:] = ssvalue
+
+    def test_hh_path(self,d=1e-4):
+        """ test household solution and simulation along path """
+
+        print('note: inputs = steady state value -> expected: constant value (straigt line)')
+
+        par = self.par
+        sim = self.sim
+        sol = self.sol
+        ss = self.ss
+
+        # a. solution and simulation hh along path
+        self._set_inputs_hh_ss()
+        self.solve_hh_path(do_print=True)
+        self.simulate_hh_path(do_print=True)
+
+        # b. show mean of each hh output
+        fig = plt.figure(figsize=(6,len(self.outputs_hh)*4))
+        for i,outputname in enumerate(self.outputs_hh):
+            
+            D = sim.path_D
+            pol = getattr(sol,f'path_{outputname}')
+            y = [np.sum(D[t]*pol[t])for t in range(par.transition_T)]
+
+            ax = fig.add_subplot(len(self.outputs_hh),1,1+i)
+            ax.plot(np.arange(par.transition_T),y,'-')
+            ax.set_title(outputname)
+
+            ssvalue = getattr(ss,f'{outputname.upper()}_hh')
+            ax.set_ylim([(1-d)*ssvalue,(1+d)*ssvalue])
+
+    ################
+    # 4. Jacobians #
+    ################
 
     def _set_inputs_exo_ss(self):
         """ set endogenous  inputs to steady state """
@@ -306,7 +337,49 @@ class GEModelClass:
             patharray = getattr(self.path,inputname)
             patharray[:,:] = ssvalue
 
-    def _calc_jac_hh_simple(self,shockname,dshock=1e-4,do_print=False,jac_hh=None):
+    def test_path(self):
+        """ test evaluation of path """
+
+        print('note: inputs = steady state value -> expected: no difference to steady state and zero errors\n')
+
+        par = self.par
+        ss = self.ss
+        path = self.path
+
+        # a. set exogenous and endogenous to steady state
+        self._set_inputs_exo_ss()
+        self._set_inputs_endo_ss()
+        
+        # b. baseline evaluation at steady state 
+        self.evaluate_path()
+
+        # c. 
+        print('difference to value at steady state:')
+        for varname in self.varlist:
+
+            pathvalue = getattr(path,varname)[0,:]
+            ssvalue = getattr(ss,varname)
+
+            if np.isnan(ssvalue): continue
+
+            diff_t0 = pathvalue[0]-ssvalue
+            max_abs_diff = np.max(np.abs(pathvalue-ssvalue))
+
+            print(f'{varname:15s}: t0 = {diff_t0:12.8f}, max abs. {max_abs_diff:12.8f}')
+
+        print('\nabsolute value (potential targets):')
+        for varname in self.varlist:
+
+            pathvalue = getattr(path,varname)[0,:]
+            ssvalue = getattr(ss,varname)
+
+            if not np.isnan(ssvalue): continue
+            
+            max_abs = np.max(np.abs(pathvalue))
+
+            print(f'{varname:15s}: t0 = {pathvalue[0]:12.8f}, max abs. {max_abs:12.8f}')
+
+    def _calc_jac_hh_direct(self,shockname,dshock=1e-4,do_print=False,jac_hh=None,s_list=None):
         """ compute jacobian of household problem """
 
         par = self.par
@@ -314,6 +387,8 @@ class GEModelClass:
         sim = self.sim
         jac_hh = self.jac_hh if jac_hh is None else jac_hh
         
+        if s_list is None: s_list = list(range(par.transition_T))
+
         t0 = time.time()
         if do_print: print(f'finding jacobian wrt. {shockname:3s}:',end='')
             
@@ -330,14 +405,17 @@ class GEModelClass:
             shockarray[0,-1] += dshock
 
         self.solve_hh_path()
+        par_shock = deepcopy(self.par)
         sol_shock = deepcopy(self.sol)
 
         # c. simulate
-        for s in range(par.transition_T):
+        for s in s_list:
 
-            if do_print and s%100 == 0: print(f' {s}',end='')
+            if do_print: print(f' {s}',end='')
             
             # i. before shock only time to shock matters
+            par.z_grid_path[:s+1] = par_shock.z_grid_path[par.transition_T-(s+1):]
+            par.z_trans_path[:s+1] = par_shock.z_trans_path[par.transition_T-(s+1):]
             sol.path_i[:s+1] = sol_shock.path_i[par.transition_T-(s+1):]
             sol.path_w[:s+1] = sol_shock.path_w[par.transition_T-(s+1):]
 
@@ -348,6 +426,8 @@ class GEModelClass:
             # ii. after shock solution is ss
             sol.path_i[s+1:] = sol.i
             sol.path_w[s+1:] = sol.w
+            par.z_grid_path[s+1:] = par.z_grid_ss
+            par.z_trans_path[s+1:] = par.z_trans_ss
 
             for outputname in self.outputs_hh:
                 varname = f'path_{outputname}'                     
@@ -364,13 +444,8 @@ class GEModelClass:
 
                 for t in range(par.transition_T):
 
-                    if t == 0: # steady state
-                        D_lag = sim.D
-                    else:
-                        D_lag = sim.path_D[t-1]
-
                     basevalue = np.sum(sol.__dict__[outputname]*sim.D)
-                    shockvalue = np.sum(sol.__dict__[varname][t]*D_lag)
+                    shockvalue = np.sum(sol.__dict__[varname][t]*sim.path_D[t])
 
                     jacarray[t,s] = (shockvalue-basevalue)/dshock
 
@@ -415,10 +490,19 @@ class GEModelClass:
         for varname in self.outputs_hh: diffs[varname] = np.zeros(par.transition_T)
         
         # compute
+        D_ss = sim.D
+        D_ini = sim.D.copy()      
+        
+        z_trans_ss_T = par.z_trans_ss.T
+        z_trans_ss_T_inv = np.linalg.inv(z_trans_ss_T)  
+        
         for s in range(par.transition_T):
             
             t_ = (par.transition_T-1) - s
-            simulate_hh_forwards(sim.D,sol.path_i[t_],sol.path_w[t_],par.z_trans_path[t_].T,diffs['D'][s])
+
+            z_trans_T = par.z_trans_path[t_].T
+            simulate_hh_initial_distribution(D_ss,z_trans_ss_T_inv,z_trans_T,D_ini)
+            simulate_hh_forwards(D_ini,sol.path_i[t_],sol.path_w[t_],z_trans_ss_T,diffs['D'][s])
             
             diffs['D'][s] = (diffs['D'][s]-sim.D)/dshock
 
@@ -427,7 +511,7 @@ class GEModelClass:
                 varname = f'path_{outputname}'
 
                 basevalue = np.sum(sol.__dict__[outputname]*sim.D)
-                shockvalue = np.sum(sol.__dict__[varname][t_]*sim.D)
+                shockvalue = np.sum(sol.__dict__[varname][t_]*D_ini)
                 diffs[outputname][s] = (shockvalue-basevalue)/dshock 
         
         if do_print_full: print(f'derivatives calculated in {elapsed(t0)}')
@@ -486,22 +570,25 @@ class GEModelClass:
         if do_print: print(f'household Jacobian computed in {elapsed(t0_all)}')
         if do_print_full: print('')
         
-    def compute_jac_hh(self,dshock=1e-4,do_print=False,do_print_full=False,do_simple=False):
+    def compute_jac_hh(self,dshock=1e-6,do_print=False,do_print_full=False,do_direct=False,s_list=None):
         """ compute jacobian of household problem """
 
         path_original = deepcopy(self.path)
 
+        if not do_direct:
+            assert s_list is None, 'not implemented'
+
         # a. ghost run
         jac_hh_ghost = SimpleNamespace()
-        if do_simple:
-            self._calc_jac_hh_simple('__ghost',dshock=dshock,do_print=do_print,jac_hh=jac_hh_ghost)
+        if do_direct:
+            self._calc_jac_hh_direct('__ghost',dshock=dshock,do_print=do_print,jac_hh=jac_hh_ghost,s_list=s_list)
         else:
             self._calc_jac_hh_fakenews('__ghost',dshock=dshock,do_print=do_print,do_print_full=do_print_full,jac_hh=jac_hh_ghost)
 
         # b. run for each input
         for shockname in self.inputs_hh:
-            if do_simple:
-                self._calc_jac_hh_simple(shockname,dshock=dshock,do_print=do_print)
+            if do_direct:
+                self._calc_jac_hh_direct(shockname,dshock=dshock,do_print=do_print,s_list=s_list)
             else:
                 self._calc_jac_hh_fakenews(shockname,dshock=dshock,do_print=do_print,do_print_full=do_print_full)
 
@@ -519,6 +606,49 @@ class GEModelClass:
 
         # reset
         self.path = path_original
+
+    def test_jac_hh(self,s_list,dshock=1e-6):
+        """ test the computation of hh Jacobians with direct and fake news method"""
+
+        par = self.par
+
+        print('note: differences should only be due to numerical errors\n')
+
+        # a. direct
+        print('direct method:')
+        self.compute_jac_hh(dshock=dshock,do_print=True,do_print_full=False,do_direct=True,s_list=s_list)
+        jac_hh_direct = deepcopy(self.jac_hh)
+
+        # b. fake news
+        print(f'\nfake news method:')
+        self.compute_jac_hh(dshock=dshock,do_print=True,do_print_full=False,do_direct=False)
+
+        # c. compare
+        fig = plt.figure(figsize=(6*2,len(self.outputs_hh)*len(self.inputs_hh)*4),dpi=100)
+
+        i = 0
+        for inputname in self.inputs_hh:
+            for outputname in self.outputs_hh:
+            
+                jac_hh_var_direct = getattr(jac_hh_direct,f'{outputname.upper()}_{inputname}')
+                jac_hh_var = getattr(self.jac_hh,f'{outputname.upper()}_{inputname}')
+                
+                ax = fig.add_subplot(len(self.inputs_hh)*len(self.outputs_hh),2,i*2+1)
+                ax_diff = fig.add_subplot(len(self.inputs_hh)*len(self.outputs_hh),2,i*2+2)
+
+                ax.set_title(f'{outputname.upper()} to {inputname}')
+                ax_diff.set_title(f'... difference')
+
+                for j,s in enumerate(s_list):
+                    
+                    ax.plot(np.arange(par.transition_T),jac_hh_var_direct[:,s],color=colors[j],label=f'shock at {s}')
+                    ax.plot(np.arange(par.transition_T),jac_hh_var[:,s],color=colors[j],ls='--',label='fake news')
+                    
+                    diff = jac_hh_var[:,s]-jac_hh_var_direct[:,s]
+                    ax_diff.plot(np.arange(par.transition_T),diff,color=colors[j])
+
+                if i == 0: ax.legend(frameon=True)
+                i += 1    
 
     def compute_jac(self,h=1e-4,do_print=False,parallel=True):
         """ compute full jacobian """
@@ -713,79 +843,36 @@ class GEModelClass:
     # IRFs #
     ########
 
-    def show_IRFs(self,paths,abs_value=[],do_inputs=True,do_targets=True,T_max=None):
+    def show_IRFs(self,paths,abs_value=None,lvl_value=None,facs=None,do_inputs=True,do_targets=True,T_max=None,ncols=4,filename=None):
         """ shows IRFS """
 
         # paths: list[str], variable names
         # abs_value: list[str], variable names to be shown as absolute difference to ss (defaulte is in % if ss is not nan)
+        # lvl_value: list[str], variable names to be shown level (defaulte is in % if ss is not nan)
+        # facs: dict[str -> float], scaling factor when in abs_value or lvl_value
         # do_inputs: boolean, show IRFs for the inputs
         # do_targets: boolean, show IRFs for the targets
         # T_max: int, length of IRF
+        # ncols: number of columns
+        # filename: filename if saving figure
 
         models = [self]
         labels = [None]
-        show_IRFs(models,labels,paths,abs_value=abs_value,do_inputs=do_inputs,do_targets=do_targets,T_max=T_max)
+        show_IRFs(models,labels,paths,abs_value=abs_value,lvl_value=lvl_value,facs=facs,do_inputs=do_inputs,do_targets=do_targets,T_max=T_max,ncols=ncols,filename=filename)
 
-    def compare_IRFs(self,models,labels,paths,abs_value=[],do_inputs=True,do_targets=True,T_max=None):
+    def compare_IRFs(self,models,labels,paths,abs_value=None,lvl_value=None,facs=None,do_inputs=True,do_targets=True,T_max=None,ncols=4,filename=None):
         """ compare IRFs across models """
 
         # models: list[GEModelClass], models
         # labels: list[str], model names
         # paths: list[str], variable names
         # abs_value: list[str], variable names to be shown as absolute difference to ss (defaulte is in % if ss is not nan)
+        # lvl_value: list[str], variable names to be shown level (defaulte is in % if ss is not nan)
+        # facs: dict[str -> float], scaling factor when in abs_value or lvl_value
         # do_inputs: boolean, show IRFs for the inputs
         # do_targets: boolean, show IRFs for the targets
         # T_max: int, length of IRF
+        # ncols: number of columns
+        # filename: filename if saving figure
                  
-        show_IRFs(models,labels,paths,abs_value=abs_value,do_inputs=do_inputs,do_targets=do_targets,T_max=T_max)
-
-    ################
-    # determinancy #
-    ################
-
-    def check_determinancy(self):
-        """ check determinancy """
-
-        # a. re-arrange Jacobian from var1 at time t=0,..., then var2 at time t=0,... to var1 at time t=1, var2 at time t=1,... (correct?)
-        
-        Nvars = len(self.inputs_endo)
-        T = self.jac.shape[0]//Nvars
-        temp = np.zeros(self.jac.shape)
-        for var in range(Nvars):
-            for t in range(T):
-                temp[t*Nvars+var, T*var+t] = 1.0
-        jac_new = temp@self.jac@np.linalg.inv(temp)  
-
-        # b. pick out the A matrices (in practice finitely many)
-        leadlags = 100 # Magic number. Truncation assumption that 100 periods away don't matter
-        t_center = T-leadlags - 1
-
-        A = np.zeros((2*leadlags+1,Nvars,Nvars))
-        for i,j in enumerate(range(-leadlags, leadlags+1)):
-            A[i,:,:] = jac_new[(Nvars*t_center):(Nvars*(t_center+1)), (Nvars*(t_center+j)):(Nvars*(t_center+j+1))]
-
-        # c. call winding number function from Auclert et al. (2021)
-        winding_number = winding_criterion(A, N=4096)
-
-        print(f'{winding_number = }')
-
-        # d. alternative way of calculating winding number
-        
-        js = np.arange(-leadlags,leadlags+1) 
-
-        def calA(lamda, A, js):
-            return np.linalg.det(np.sum([A[k]*np.exp(1j*js[k]*lamda) for k in range(js.size)], axis=0))
-
-        gridpoints = 10**3
-        output = [calA(t, A, js) for t in np.linspace(0, 2*np.pi, gridpoints)]
-        output_real = [x.real for x in output]
-        output_imag = [x.imag for x in output]
-        output_real_pos = np.array(output_real)>=0
-        output_imag_pos = np.array(output_imag)>=0
-        output_imag_neg = np.array(output_imag)<=0
-        
-        up_passing = np.sum(output_real_pos[:-1]*output_imag_pos[1:]*output_imag_neg[:-1])
-        down_passing = np.sum(output_real_pos[:-1]*output_imag_pos[:-1]*output_imag_neg[1:])
-
-        print(f'{up_passing = }')
-        print(f'{down_passing = }')
+        show_IRFs(models,labels,paths,abs_value=abs_value,lvl_value=lvl_value,facs=facs,do_inputs=do_inputs,do_targets=do_targets,T_max=T_max,ncols=ncols,filename=filename)
