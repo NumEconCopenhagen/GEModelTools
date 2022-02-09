@@ -9,16 +9,16 @@ colors = prop_cycle.by_key()['color']
 plt.rcParams.update({'font.size':12})
 
 def show_IRFs(models,labels,paths,
-            abs_value=None,lvl_value=None,facs=None,
-            do_inputs=True,do_targets=True,ncols=4,T_max=None,
-            filename=None):
+            abs_diff=None,lvl_value=None,facs=None,pows=None,
+            do_inputs=True,do_targets=True,do_linear=False,
+            ncols=4,T_max=None, filename=None):
     
-    abs_value = [] if abs_value is None else abs_value
+    assert len(models) == 1 or not do_linear, 'comparision with linear only availible with one model'
+
+    abs_diff = [] if abs_diff is None else abs_diff
     lvl_value = [] if lvl_value is None else lvl_value
     facs = {} if facs is None else facs
-
-    for path in paths: 
-        if not path in facs: facs[path] = 1.0
+    pows = {} if pows is None else pows
 
     model = models[0]
     
@@ -31,6 +31,12 @@ def show_IRFs(models,labels,paths,
     full_list.append(('paths',paths))
     if do_targets: full_list.append(('tagets',[x for x in model.targets]))
     
+    # default fac = 1.0
+    for (typename,varnames) in full_list:
+        for varname in varnames:
+            if not varname in facs: facs[varname] = 1.0
+            if not varname in pows: pows[varname] = 1.0
+
     # figures
     for (typename,varnames) in full_list:
         
@@ -44,41 +50,75 @@ def show_IRFs(models,labels,paths,
         for i,varname in enumerate(varnames):
             
             ax = fig.add_subplot(nrows,ncols,i+1)
-            ax.set_title(varname,fontsize=14)
+            title = varname
+            if not np.isclose(pows[varname],1.0): title += (' (ann.)')
+            ax.set_title(title,fontsize=14)
             
             for label,model_ in zip(labels,models):
             
-                pathvalue = getattr(model_.path,varname)[0,:]            
-                
+                pathvalue = model_.path.__dict__[varname][0,:]
+                dlinpathvalue = model_.dlinpath[varname]               
+
                 if not np.isnan(getattr(model_.ss,varname)):
 
-                    ssvalue = getattr(model_.ss,varname)
+                    ssvalue = model_.ss.__dict__[varname]
+                    dlinpathvalue = dlinpathvalue + ssvalue
 
-                    if varname in abs_value:
+                    if varname in abs_diff:
+                        
+                        if np.isclose(ssvalue,1.0):
+                            ssvalue = facs[varname]*ssvalue**pows[varname]
+                            pathvalue = facs[varname]*pathvalue**pows[varname]
+                            dlinpathvalue = facs[varname]*dlinpathvalue**pows[varname]  
+                        else:
+                            ssvalue = facs[varname]*((1+ssvalue)**pows[varname]-1)
+                            pathvalue = facs[varname]*((1+pathvalue)**pows[varname]-1)
+                            dlinpathvalue = facs[varname]*((1+dlinpathvalue)**pows[varname]-1)
+                   
+                        ax.plot(np.arange(T_max),pathvalue[:T_max]-ssvalue,label=label)
+                        if do_linear:
+                            ax.plot(np.arange(T_max),dlinpathvalue[:T_max]-ssvalue,ls='--',label='linear')
 
-                        ax.plot(np.arange(T_max),facs[varname]*(pathvalue[:T_max]-ssvalue),label=label)
                         if varname in facs:
                             ax.set_ylabel(fr'{facs[varname]:.0f} x abs. diff. to of s.s.')
                         else:
                             ax.set_ylabel('abs. diff. to of s.s.')
 
                     elif varname in lvl_value:
+                        
+                        if np.isclose(ssvalue,1.0):
+                            ssvalue = facs[varname]*ssvalue**pows[varname]
+                            pathvalue = facs[varname]*pathvalue**pows[varname]
+                            dlinpathvalue = facs[varname]*dlinpathvalue**pows[varname]  
+                        else:
+                            ssvalue = facs[varname]*((1+ssvalue)**pows[varname]-1)
+                            pathvalue = facs[varname]*((1+pathvalue)**pows[varname]-1)
+                            dlinpathvalue = facs[varname]*((1+dlinpathvalue)**pows[varname]-1)
 
-                        ax.plot(np.arange(T_max),facs[varname]*pathvalue[:T_max],label=label)
+                        ax.plot(np.arange(T_max),pathvalue[:T_max],label=label)
+                        if do_linear:
+                            ax.plot(np.arange(T_max),dlinpathvalue[:T_max],ls='--',label='linear')
+
                         if not np.isclose(facs[varname],1.0):
-                            ax.set_ylabel(fr'{facs[varname]:.0f} x ')
+                            ax.set_ylabel(fr'{facs[varname]:.0f} x level')
                         else:
                             ax.set_ylabel('')
 
                     else:
-                        ax.plot(np.arange(T_max),(pathvalue[:T_max]/ssvalue-1)*100,label=label)
+
+                        ax.plot(np.arange(T_max),100*(pathvalue[:T_max]/ssvalue-1),label=label)
+                        if do_linear:
+                            ax.plot(np.arange(T_max),100*(dlinpathvalue[:T_max]/ssvalue-1),ls='--',label='linear')
+
                         ax.set_ylabel('% diff. to s.s.')
 
                 else:
 
                     ax.plot(np.arange(T_max),pathvalue[:T_max],label=label)
+                    if do_linear:
+                        ax.plot(np.arange(T_max),dlinpathvalue[:T_max],ls='--',label='linear')
             
-            if len(labels) > 1 and i == 0: ax.legend(frameon=True)
+            if (len(labels) > 1 or do_linear) and i == 0: ax.legend(frameon=True)
             
         plt.show()
         fig.tight_layout(pad=3.0)

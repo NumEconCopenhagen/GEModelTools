@@ -2,7 +2,7 @@
 
 import numpy as np
 
-def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrack=30,do_print=False):
+def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrack=30,do_print=False,targets=None):
     """ numerical solver using the broyden method """
 
     # a. initial
@@ -14,7 +14,12 @@ def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrac
         
         # i. current difference
         abs_diff = np.max(np.abs(y))
-        if do_print: print(f' it = {it:3d} -> max. abs. error = {abs_diff:12.8f}')
+        if do_print: 
+            print(f' it = {it:3d} -> max. abs. error = {abs_diff:8.1e}')
+            if not targets is None and len(targets) > 1:
+                y_ = y.reshape((len(targets),-1))
+                for i,target in enumerate(targets):
+                    print(f'   {np.max(np.abs(y_[i])):8.1e} in {target}')
 
         if abs_diff < tol: return x
         
@@ -38,6 +43,7 @@ def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrac
         else:
 
             raise ValueError('Too many backtracks, maybe bad initial guess?')
+
     else:
 
         raise ValueError(f'No convergence after {max_iter} iterations')    
