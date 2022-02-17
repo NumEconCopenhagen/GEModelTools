@@ -53,14 +53,6 @@ class GEModelClass:
 
         assert hasattr(self.par,'Nz'), 'par.Nz must be specified'
 
-        # automatic not-floats
-        not_floats = ['transition_T','max_iter_solve','max_iter_simulate','max_iter_broyden'] 
-        not_floats += [f'N{varname}' for varname in self.grids_hh] + ['Nz']
-
-        for not_float in not_floats:
-            if not not_float in self.not_floats:
-                self.not_floats.append(not_float)
-
         # b. checks
         assert Nz == par.Nz, f'sol_shape is wrong, sol_shape[1] = {Nz}, par.Nz = {par.Nz}'
 
