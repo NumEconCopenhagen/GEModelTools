@@ -473,7 +473,7 @@ class GEModelClass:
 
         if do_print_full: 
             print('')
-        else:
+        elif do_print:
             print(': ',end='')
         
         # a. step 1: solve backwards
