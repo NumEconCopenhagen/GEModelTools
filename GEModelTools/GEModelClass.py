@@ -607,8 +607,8 @@ class GEModelClass:
                 self._calc_jac_hh_fakenews(jac_hh,inputname,dshock=dshock,
                     do_print=do_print,do_print_full=do_print_full)
 
-        # this might be removed later
-        setattr(self,f'sol_{inputname}',deepcopy(self.sol))
+            # this might be removed later
+            setattr(self,f'sol_{inputname}',deepcopy(self.sol))
 
         # c. correction with ghost run
         for outputname in self.outputs_hh:
