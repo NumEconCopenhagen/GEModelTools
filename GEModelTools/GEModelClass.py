@@ -160,7 +160,7 @@ class GEModelClass:
             len(self.targets)*par.transition_T,
             len(self.inputs_exo)*par.transition_T))
 
-        self.G = np.zeros(self.jac.shape)
+        self.G = np.zeros(self.jac_exo.shape)
 
         self.dlinpath = {}
         for varname in self.varlist:
@@ -218,8 +218,8 @@ class GEModelClass:
         sol = model.sol
         ss = model.ss
 
-        if len(self.grids_hh) == 1 and len(self.pols_hh) == 1:
-            pol1 = getattr(sol,f'{self.pols_hh[0]}')
+        if len(self.grids_hh) == 1:
+            pol1 = getattr(sol,f'{self.grids_hh[0]}')
             grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
             find_i_and_w_1d_1d(pol1,grid1,sol.i,sol.w)
         else:
@@ -284,8 +284,8 @@ class GEModelClass:
         sol = self.sol
         ss = self.ss
 
-        if len(self.grids_hh) == 1 and len(self.pols_hh) == 1:
-            path_pol1 = getattr(sol,f'path_{self.pols_hh[0]}')
+        if len(self.grids_hh) == 1:
+            path_pol1 = getattr(sol,f'path_{self.grids_hh[0]}')
             grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
             find_i_and_w_1d_1d_path(par.transition_T,path_pol1,grid1,sol.path_i,sol.path_w)
         else:
@@ -607,9 +607,10 @@ class GEModelClass:
                 self._calc_jac_hh_fakenews(jac_hh,inputname,dshock=dshock,
                     do_print=do_print,do_print_full=do_print_full)
 
+        # this might be removed later
+        setattr(self,f'sol_{inputname}',deepcopy(self.sol))
+
         # c. correction with ghost run
-
-
         for outputname in self.outputs_hh:
             for inputname in self.inputs_hh:
                 
@@ -763,6 +764,7 @@ class GEModelClass:
 
         # b. solution matrix
         t0_ = time.time()
+        
         if not reuse_G: self.G[:,:] = -np.linalg.solve(self.jac,self.jac_exo)
         t1_ = time.time()
 
