@@ -486,13 +486,14 @@ class GEModelClass:
             shockarray[0,-1] += dshock
 
         self.solve_hh_path(do_print=False)
+        self.sol_fake[inputname] = deepcopy(self.sol)
 
         if do_print_full: print(f'household problem solved backwards in {elapsed(t0)}')
 
         # b. step 2: derivatives
         t0 = time.time()
         
-        diffs = {}
+        diffs = self.diffs[inputname] = {}
 
         # allocate
         diffs['D'] = np.zeros((par.transition_T,*sim.D.shape))
@@ -532,7 +533,7 @@ class GEModelClass:
         def demean(x):
             return x - x.sum()/x.size
 
-        exp = {}
+        exp = self.exp[inputname] = {}
 
         for outputname in self.outputs_hh:
 
@@ -552,7 +553,7 @@ class GEModelClass:
         # d. step 4: F        
         t0 = time.time()
 
-        F = {}
+        F = self.F[inputname] = {}
         for outputname in self.outputs_hh:
         
             F[outputname] = np.zeros((par.transition_T,par.transition_T))
@@ -588,6 +589,11 @@ class GEModelClass:
         path_original = deepcopy(self.path)
         if not do_direct: assert s_list is None, 'not implemented for fake news algorithm'
 
+        self.sol_fake = {}
+        self.diffs = {}
+        self.exp = {}
+        self.F = {}
+
         # a. ghost run
         jac_hh_ghost = {}
         if do_direct:
@@ -606,9 +612,6 @@ class GEModelClass:
             else:
                 self._calc_jac_hh_fakenews(jac_hh,inputname,dshock=dshock,
                     do_print=do_print,do_print_full=do_print_full)
-
-            # this might be removed later
-            setattr(self,f'sol_{inputname}',deepcopy(self.sol))
 
         # c. correction with ghost run
         for outputname in self.outputs_hh:
