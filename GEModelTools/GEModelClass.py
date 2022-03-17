@@ -269,6 +269,18 @@ class GEModelClass:
     # 3. household path #
     #####################
 
+    def find_i_and_w(self):
+
+        par = self.par
+        sol = self.sol
+
+        if len(self.grids_hh) == 1:
+            path_pol1 = getattr(sol,f'path_{self.grids_hh[0]}')
+            grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
+            find_i_and_w_1d_1d_path(par.transition_T,path_pol1,grid1,sol.path_i,sol.path_w)
+        else:
+            raise ValueError('not implemented')
+
     def solve_hh_path(self,do_print=False):
         """ gateway for solving the household problem along the transition path """
 
@@ -280,28 +292,18 @@ class GEModelClass:
             household_problem.solve_hh_path(model.par,model.sol,model.ss,model.path)
 
         # b. indices and weights
-        par = self.par
-        sol = self.sol
-        ss = self.ss
-
-        if len(self.grids_hh) == 1:
-            path_pol1 = getattr(sol,f'path_{self.grids_hh[0]}')
-            grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
-            find_i_and_w_1d_1d_path(par.transition_T,path_pol1,grid1,sol.path_i,sol.path_w)
-        else:
-            raise ValueError('not implemented')
+        self.find_i_and_w()
 
         if do_print:
             print(f'household problem solved along transition path in {elapsed(t0)}')
 
-    def simulate_hh_path(self,do_print=False):
+    def simulate_hh_path(self,do_print=False,find_i_and_w=False):
         """ gateway for simulating the household problem along the transition path"""
         
-        t0 = time.time()
+        t0 = time.time() 
 
-        par = self.par
-        sim = self.sim
-        sol = self.sol
+        if find_i_and_w:
+            self.find_i_and_w()
 
         with jit(self) as model:
             simulate_hh_path(model.par,model.sol,model.sim)
