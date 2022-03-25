@@ -29,25 +29,19 @@ def find_i_and_w_1d_1d(pol1,grid1,i,w):
                 w[i_fix,i_z,i_endo] = np.fmin(w[i_fix,i_z,i_endo],1.0)
 
 @nb.njit
-def find_i_and_w_1d_1d_path(transition_T,path_pol1,grid1,path_i,path_w):
+def find_i_and_w_1d_1d_path(T,path_pol1,grid1,path_i,path_w):
     """ find indices and weights for simulation along transition path"""
 
-    for k in range(transition_T):
+    for k in range(T):
 
-        t = (transition_T-1)-k
+        t = (T-1)-k
 
         find_i_and_w_1d_1d(path_pol1[t],grid1,path_i[t],path_w[t])
 
     return k
 
-@nb.jit
-def prepare_simulation_1d_1d(par,sol,path_pol1,grid1):
-    """ find indices and weights for simulation along transition path"""
-
-    find_i_and_w_1d_1d_path(par.transition_T,path_pol1,grid1,sol.path_i,sol.path_w)
-
 @nb.njit(parallel=True)   
-def simulate_hh_initial_distribution(D_ss,z_trans_ss_T_inv,z_trans_T,D):
+def simulate_hh_D0(D_ss,z_trans_ss_T_inv,z_trans_T,D):
     """ find initial distribution given initial transition matrix """
 
     Nfix = D_ss.shape[0]
@@ -156,7 +150,7 @@ def simulate_hh_ss(par,sol,sim):
 def simulate_hh_path(par,sol,sim):
     """ simulate along path """
 
-    for t in range(par.transition_T):
+    for t in range(par.T):
 
         D = sim.path_D[t]
         z_trans_T = par.z_trans_path[t].T
@@ -167,7 +161,7 @@ def simulate_hh_path(par,sol,sim):
             D_ss = sim.D
             z_trans_ss_T_inv = np.linalg.inv(par.z_trans_ss.T)
             
-            simulate_hh_initial_distribution(D_ss,z_trans_ss_T_inv,z_trans_T,D)
+            simulate_hh_D0(D_ss,z_trans_ss_T_inv,z_trans_T,D)
 
         # b. all other periods
         else:

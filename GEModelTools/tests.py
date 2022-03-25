@@ -29,11 +29,11 @@ def hh_path(self):
         
         D = sim.path_D
         pol = getattr(sol,f'path_{outputname}')
-        y = np.array([np.sum(D[t]*pol[t])for t in range(par.transition_T)])
+        y = np.array([np.sum(D[t]*pol[t])for t in range(par.T)])
         y_ss = getattr(ss,outputname.upper())
 
         ax = fig.add_subplot(len(self.outputs_hh),1,1+i)
-        ax.plot(np.arange(par.transition_T),y-y_ss,'-')
+        ax.plot(np.arange(par.T),y-y_ss,'-')
         ax.set_yscale('symlog', linthresh=1e-8)
         ax.set_title(outputname)
 
@@ -49,8 +49,8 @@ def path(self):
     path = self.path
 
     # a. set exogenous and endogenous to steady state
-    self._set_inputs_exo_ss()
-    self._set_inputs_endo_ss()
+    self._set_shocks_ss()
+    self._set_unknowns_ss()
     
     # b. baseline evaluation at steady state 
     self.evaluate_path()
@@ -81,7 +81,7 @@ def path(self):
 
         print(f'{varname:15s}: t0 = {pathvalue[0]:8.1e}, max abs. {max_abs:8.1e}')        
 
-def jac_hh(self,s_list,dshock=1e-6):
+def jac_hh(self,s_list,dx=1e-6):
     """ test the computation of hh Jacobians with direct and fake news method"""
 
     par = self.par
@@ -90,12 +90,12 @@ def jac_hh(self,s_list,dshock=1e-6):
 
     # a. direct
     print('direct method:')
-    self.compute_jac_hh(dshock=dshock,do_print=True,do_print_full=False,do_direct=True,s_list=s_list)
+    self._compute_jac_hh(dx=dx,do_print=True,do_print_full=False,do_direct=True,s_list=s_list)
     jac_hh_direct = deepcopy(self.jac_hh)
 
     # b. fake news
     print(f'\nfake news method:')
-    self.compute_jac_hh(dshock=dshock,do_print=True,do_print_full=False,do_direct=False)
+    self._compute_jac_hh(dx=dx,do_print=True,do_print_full=False,do_direct=False)
 
     # c. compare
     fig = plt.figure(figsize=(6*2,len(self.outputs_hh)*len(self.inputs_hh)*4),dpi=100)
@@ -104,8 +104,8 @@ def jac_hh(self,s_list,dshock=1e-6):
     for inputname in self.inputs_hh:
         for outputname in self.outputs_hh:
         
-            jac_hh_var_direct = getattr(jac_hh_direct,f'{outputname.upper()}_{inputname}')
-            jac_hh_var = getattr(self.jac_hh,f'{outputname.upper()}_{inputname}')
+            jac_hh_var_direct = jac_hh_direct[(f'{outputname.upper()}_hh',inputname)]
+            jac_hh_var = self.jac_hh[(f'{outputname.upper()}_hh',inputname)]
             
             ax = fig.add_subplot(len(self.inputs_hh)*len(self.outputs_hh),2,i*2+1)
             ax_diff = fig.add_subplot(len(self.inputs_hh)*len(self.outputs_hh),2,i*2+2)
@@ -115,11 +115,11 @@ def jac_hh(self,s_list,dshock=1e-6):
 
             for j,s in enumerate(s_list):
                 
-                ax.plot(np.arange(par.transition_T),jac_hh_var_direct[:,s],color=colors[j],label=f'shock at {s}')
-                ax.plot(np.arange(par.transition_T),jac_hh_var[:,s],color=colors[j],ls='--',label='fake news')
+                ax.plot(np.arange(par.T),jac_hh_var_direct[:,s],color=colors[j],label=f'shock at {s}')
+                ax.plot(np.arange(par.T),jac_hh_var[:,s],color=colors[j],ls='--',label='fake news')
                 
                 diff = jac_hh_var[:,s]-jac_hh_var_direct[:,s]
-                ax_diff.plot(np.arange(par.transition_T),diff,color=colors[j])
+                ax_diff.plot(np.arange(par.T),diff,color=colors[j])
 
             if i == 0: ax.legend(frameon=True)
             i += 1            
