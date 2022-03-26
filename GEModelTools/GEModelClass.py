@@ -57,7 +57,7 @@ class GEModelClass:
         for attr in attrs:
             assert hasattr(self,attr), f'missing .{attr}'
 
-        for attr in attrs + ['jac','jac_U','jac_Z','jac_hh','IRF']:
+        for attr in attrs + ['jac','H_U','H_Z','jac_hh','IRF']:
             if not attr in self.other_attrs:
                 self.other_attrs.append(attr)
 
@@ -71,7 +71,7 @@ class GEModelClass:
             assert varname in self.varlist, f'{varname} not in .varlist'
 
         for varname in self.outputs_hh:
-            varname_agg = varname.upper()
+            varname_agg = f'{varname.upper()}_hh'
             assert varname_agg in self.varlist, f'{varname_agg} not in .varlist'
             hasattr(self.path,varname_agg), f'{varname_agg} not in .path'
 
@@ -133,15 +133,15 @@ class GEModelClass:
                 key = (outputname,inputname)
                 self.jac[key] = np.zeros((par.T,par.T))
 
-        self.jac_U = np.zeros((
+        self.H_U = np.zeros((
             len(self.targets)*par.T,
             len(self.unknowns)*par.T))
 
-        self.jac_Z = np.zeros((
+        self.H_Z = np.zeros((
             len(self.targets)*par.T,
             len(self.shocks)*par.T))
 
-        self.G_U = np.zeros(self.jac_Z.shape)
+        self.G_U = np.zeros(self.H_Z.shape)
 
         self.IRF = {}
         for varname in self.varlist:
@@ -424,7 +424,7 @@ class GEModelClass:
         return errors
 
     def _calc_jac_hh_direct(self,jac_hh,inputname,dx=1e-4,do_print=False,s_list=None):
-        """ compute jacobian of household problem """
+        """ compute Jacobian of household problem """
 
         par = self.par
         sol = self.sol
@@ -433,7 +433,7 @@ class GEModelClass:
         if s_list is None: s_list = list(range(par.T))
 
         t0 = time.time()
-        if do_print: print(f'finding jacobian wrt. {inputname:3s}:',end='')
+        if do_print: print(f'finding Jacobian wrt. {inputname:3s}:',end='')
             
         # a. allocate
         for outputname in self.outputs_hh:
@@ -479,7 +479,7 @@ class GEModelClass:
             # iii. simulate path
             self.simulate_hh_path()
 
-            # iv. compute jacobian
+            # iv. compute Jacobian
             for outputname in self.outputs_hh:
                 
                 jac_hh_ = jac_hh[(f'{outputname.upper()}_hh',inputname)]
@@ -495,7 +495,7 @@ class GEModelClass:
         if do_print: print(f' [computed in {elapsed(t0)}]')
 
     def _calc_jac_hh_fakenews(self,jac_hh,inputname,dx=1e-4,do_print=False,do_print_full=False):
-        """ compute jacobian of household problem with fake news algorithm """
+        """ compute Jacobian of household problem with fake news algorithm """
         
         par = self.par
         sol = self.sol
@@ -521,7 +521,7 @@ class GEModelClass:
             shockarray[0,-1] += dx
 
         self.solve_hh_path(do_print=False)
-        self.sol_fake[inputname] = deepcopy(self.sol)
+        self.sol_fakenews[inputname] = deepcopy(self.sol)
 
         if do_print_full: print(f'household problem solved backwards in {elapsed(t0)}')
 
@@ -536,7 +536,7 @@ class GEModelClass:
         
         # compute
         D_ss = sim.D
-        D_ini = sim.D.copy()      
+        D_ini = np.zeros(D_ss.shape)     
         
         z_trans_ss_T = par.z_trans_ss.T
         z_trans_ss_T_inv = np.linalg.inv(z_trans_ss_T)  
@@ -616,14 +616,14 @@ class GEModelClass:
         if do_print_full: print('')
         
     def _compute_jac_hh(self,dx=1e-6,do_print=False,do_print_full=False,do_direct=False,s_list=None):
-        """ compute jacobian of household problem """
+        """ compute Jacobian of household problem """
 
         t0 = time.time()
 
         path_original = deepcopy(self.path)
         if not do_direct: assert s_list is None, 'not implemented for fake news algorithm'
 
-        self.sol_fake = {}
+        self.sol_fakenews = {}
         self.diffs = {}
         self.exp = {}
         self.F = {}
@@ -665,7 +665,7 @@ class GEModelClass:
         self.path = path_original
 
     def _compute_jac(self,do_shocks=False,dx=1e-6,do_print=False,parallel=True):
-        """ compute full jacobian """
+        """ compute full Jacobian """
         
         do_unknowns = not do_shocks
 
@@ -696,9 +696,9 @@ class GEModelClass:
 
         # c. calculate
         if do_unknowns:
-            jac_mat = self.jac_U
+            jac_mat = self.H_U
         else:
-            jac_mat = self.jac_Z
+            jac_mat = self.H_Z
         
         x_ss = np.zeros((len(inputs),par.T))
         for i,varname in enumerate(inputs):
@@ -720,7 +720,7 @@ class GEModelClass:
             evaluate_t += time.time()-t0_
             errors = self._get_errors(inputs,parallel=True)
 
-            # iii. jacobian
+            # iii. Jacobian
             jac_mat[:,:] = (errors.reshape(jac_mat.shape)-base[:,np.newaxis])/dx
 
             # iv. all other variables
@@ -752,7 +752,7 @@ class GEModelClass:
 
                 errors = self._get_errors() 
                                 
-                # iii. jacobian
+                # iii. Jacobian
                 jac[:,i] = (errors.ravel()-base)/dx
         
         if do_print:
@@ -823,7 +823,7 @@ class GEModelClass:
 
         # b. solution matrix
         t0_ = time.time()
-        if not reuse_G_U: self.G_U[:,:] = -np.linalg.solve(self.jac_U,self.jac_Z)       
+        if not reuse_G_U: self.G_U[:,:] = -np.linalg.solve(self.H_U,self.H_Z)       
         t1_ = time.time()
 
         # c. IRFs
@@ -867,7 +867,7 @@ class GEModelClass:
             self.block_pre(model.par,model.sol,model.sim,model.ss,model.path,threads=threads)
 
         # b. household block
-        if use_jac_hh: # linearized
+        if use_jac_hh and len(self.outputs_hh) > 0: # linearized
 
             for outputname in self.outputs_hh:
                 
@@ -889,7 +889,7 @@ class GEModelClass:
                     pathvalue[:,:] += (jac_hh@(pathvalue_input.T-ssvalue_input)).T 
                     # transposing needed for correct broadcasting
         
-        else: # non-linear solution
+        elif len(self.outputs_hh) > 0: # non-linear solution
 
             # i. solve
             self.solve_hh_path()
@@ -906,6 +906,10 @@ class GEModelClass:
                 pol = sol.__dict__[f'path_{outputname}']
                 pathvalue[:] = np.sum(pol*sim.path_D,axis=tuple(range(1,pol.ndim)))
                 # sum over all but first dimension
+
+        else:
+
+            pass # no household block
                 
         # c. after household block
         with jit(self) as model:
@@ -954,7 +958,7 @@ class GEModelClass:
         obj = lambda x: self._evaluate_H(x)
 
         if do_print: print(f'finding the transition path:')
-        x = broyden_solver(obj,x0,self.jac_U,
+        x = broyden_solver(obj,x0,self.H_U,
             tol=par.tol_broyden,
             max_iter=par.max_iter_broyden,
             targets=self.targets,

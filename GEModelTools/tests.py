@@ -30,7 +30,7 @@ def hh_path(self):
         D = sim.path_D
         pol = getattr(sol,f'path_{outputname}')
         y = np.array([np.sum(D[t]*pol[t])for t in range(par.T)])
-        y_ss = getattr(ss,outputname.upper())
+        y_ss = getattr(ss,f'{outputname.upper()}_hh')
 
         ax = fig.add_subplot(len(self.outputs_hh),1,1+i)
         ax.plot(np.arange(par.T),y-y_ss,'-')
