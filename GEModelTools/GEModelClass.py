@@ -153,6 +153,10 @@ class GEModelClass:
 
         # i. allocate path variables
         if hasattr(par,'simT'):
+
+            for polname in self.pols_hh:
+                setattr(self.sol,f'{varname}_sim',(par.simT,*self.sol.__dict__[polname].shape))
+
             for varname in self.varlist:
                 
                 assert not varname == 'D', f'sim.{varname} not allowed'
@@ -1160,6 +1164,7 @@ class GEModelClass:
 
         for i,polname in enumerate(self.pols_hh):
             sim_pols_mat[i] += getattr(sol,polname)
+            sol.__dict__[f'{polname}_sim'] = sim_pols_mat[i]
 
         if do_print: print(f'household policies simulated in {elapsed(t0)} [in aggregation: {elapsed(t0_,t1_)}]')     
 
