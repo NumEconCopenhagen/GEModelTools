@@ -155,7 +155,7 @@ class GEModelClass:
         if hasattr(par,'simT'):
 
             for polname in self.pols_hh:
-                setattr(self.sol,f'{varname}_sim',(par.simT,*self.sol.__dict__[polname].shape))
+                setattr(self.sol,f'{polname}_sim',(par.simT,*self.sol.__dict__[polname].shape))
 
             for varname in self.varlist:
                 
