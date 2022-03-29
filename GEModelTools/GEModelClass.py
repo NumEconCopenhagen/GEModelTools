@@ -1,5 +1,6 @@
 # contains main GEModelClass
 
+from re import A
 import time
 from copy import deepcopy
 import numpy as np
@@ -12,6 +13,7 @@ from .simulate_hh import find_i_and_w_1d_1d, find_i_and_w_1d_1d_path
 from .simulate_hh import simulate_hh_D0, simulate_hh_forwards, simulate_hh_forwards_transpose
 from .simulate_hh import simulate_hh_path, simulate_hh_ss
 from .broyden_solver import broyden_solver
+from .simulate import update_IRF_hh,simulate_agg,simulate_agg_hh
 from .figures import show_IRFs
 
 class GEModelClass:
@@ -146,6 +148,17 @@ class GEModelClass:
         self.IRF = {}
         for varname in self.varlist:
             self.IRF[varname] = np.repeat(np.nan,par.T)
+            for shockname in self.shocks:
+                self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
+
+        # i. allocate path variables
+        if hasattr(par,'simT'):
+            for varname in self.varlist:
+                
+                assert not varname == 'D', f'sim.{varname} not allowed'
+                assert not varname == 'path_D', f'sim.{varname} not allowed'
+
+                setattr(self.sim,f'd{varname}',np.zeros(par.simT))
 
     def create_grids(self):
         """ create grids """
@@ -780,7 +793,7 @@ class GEModelClass:
     # 5. find transition path and IRFs #
     ####################################
 
-    def _set_shocks(self,shock_specs=None):
+    def _set_shocks(self,shock_specs=None,std_shock=False):
         """ set shocks based on shock specification, default is AR(1) """
         
         if shock_specs is None: shock_specs = {}
@@ -798,16 +811,23 @@ class GEModelClass:
             else:
 
                 # i. jump and rho
-                jumpname = f'jump_{shockname}'
-                rhoname = f'rho_{shockname}'
+                if std_shock:
+                    
+                    stdname = f'std_{shockname}'
+                    scale = getattr(self.par,stdname)
 
-                jump = getattr(self.par,jumpname)
+                    assert not scale < 0, f'{stdname} must not be negative'
+
+                else:
+
+                    jumpname = f'jump_{shockname}'
+                    scale = getattr(self.par,jumpname)
+                
+                rhoname = f'rho_{shockname}'
                 rho = getattr(self.par,rhoname)
 
                 # ii. set value
-                T_half = self.par.T//2
-                patharray[:,:T_half] = ssvalue +  jump*rho**np.arange(T_half)
-                patharray[:,T_half:] = ssvalue
+                patharray[:,:] = ssvalue +  scale*rho**np.arange(self.par.T)
 
     def find_IRFs(self,shock_specs=None,reuse_G_U=False,do_print=False):
         """ find linearized impulse responses """
@@ -818,21 +838,21 @@ class GEModelClass:
 
         t0 = time.time()
 
-        # a. set path for shocks
-        self._set_shocks(shock_specs=shock_specs)
-
-        # b. solution matrix
+        # a. solution matrix
         t0_ = time.time()
         if not reuse_G_U: self.G_U[:,:] = -np.linalg.solve(self.H_U,self.H_Z)       
         t1_ = time.time()
+        
+        # b. set path for shocks
+        self._set_shocks(shock_specs=shock_specs)
 
         # c. IRFs
 
         # shocks
         dZ = np.zeros((len(self.shocks),par.T))
-        for i_input,inputname in enumerate(self.shocks):
-            dZ[i_input,:] = path.__dict__[inputname][0,:]-ss.__dict__[inputname]
-            self.IRF[inputname][:] = dZ[i_input,:] 
+        for i_shock,shockname in enumerate(self.shocks):
+            dZ[i_shock,:] = path.__dict__[shockname][0,:]-ss.__dict__[shockname]
+            self.IRF[shockname][:] = dZ[i_shock,:] 
 
         # unknowns
         dU = self.G_U@dZ.ravel()
@@ -1021,8 +1041,169 @@ class GEModelClass:
             do_shocks=do_shocks,do_targets=do_targets,
             T_max=T_max,ncols=ncols,filename=filename)
   
+    ###############
+    # 7. simulate #
+    ###############
+
+    def prepare_simulate(self,reuse_G_U=False,do_print=True):
+        """ prepare model for simulation by calculating IRFs """
+
+        par = self.par
+        ss = self.ss
+        sol = self.sol
+        sol_fakenews = self.sol_fakenews
+        path = self.path
+
+        t0 = time.time()
+
+        # a. solution matrix
+        t0_sol = time.time()
+        if not reuse_G_U: self.G_U[:,:] = -np.linalg.solve(self.H_U,self.H_Z)       
+        t1_sol = time.time()   
+        
+        # b. calculate unit shocks
+        self._set_shocks(std_shock=True)
+
+        # c. IRFs
+        for i_input,shockname in enumerate(self.shocks):
+            
+            # i. shock
+            dZ = np.zeros((len(self.shocks),par.T))        
+            dZ[i_input,:] = path.__dict__[shockname][0,:]-ss.__dict__[shockname]
+
+            self.IRF[(shockname,shockname)][:] = dZ[i_input,:] 
+
+            # ii. unknowns
+            dU = self.G_U@dZ.ravel()
+            dU = dU.reshape((len(self.unknowns),par.T))
+
+            for i_unknown,unknownname in enumerate(self.unknowns):                
+                self.IRF[(unknownname,shockname)][:] = dU[i_unknown,:]
+
+            # iii. remaining
+            for varname in self.varlist:
+
+                if varname in self.shocks+self.unknowns: continue
+
+                self.IRF[(varname,shockname)][:] = 0.0
+                for inputname in self.shocks+self.unknowns:
+                    self.IRF[(varname,shockname)][:] += self.jac[(varname,inputname)]@self.IRF[(inputname,shockname)]
+
+        # d. household
+        t0_hh = time.time()
+
+        dpols = {}
+        for polname in self.pols_hh:
+            base = getattr(sol_fakenews['ghost'],f'path_{polname}')
+            for inputname in self.inputs_hh:    
+                value = getattr(sol_fakenews[inputname],f'path_{polname}')
+                dpols[(polname,inputname)] = np.flip((value-base)/1e-6,axis=0)
+
+        self.IRF['pols'] = {}
+        for shockname in self.shocks:  
+            for polname in self.pols_hh:
+                IRF_pols = self.IRF['pols'][(polname,shockname)] = np.zeros((*sol.i.shape,par.T))
+                for inputname in self.inputs_hh:    
+                    update_IRF_hh(IRF_pols,dpols[(polname,inputname)],self.IRF[(inputname,shockname)])
+                    
+        t1_hh = time.time()
+
+        if do_print: print(f'simulation prepared in {elapsed(t0)} [solution matrix: {elapsed(t0_sol,t1_sol)}, household: {elapsed(t0_hh,t1_hh)}]')
+
+    def simulate(self,do_prepare=True,reuse_G_U=False,do_print=False):
+        """ simulate the model """
+
+        par = self.par
+        sim = self.sim
+        sol = self.sol
+        path = self.path
+        
+        # a. prepare simulation
+        if do_prepare: self.prepare_simulate(reuse_G_U=reuse_G_U,do_print=do_print)
+
+        t0 = time.time()
+
+        # a. IRF matrix
+        IRF_mat = np.zeros((len(self.varlist),len(self.shocks),par.T))
+        for i,varname in enumerate(self.varlist):
+            for j,shockname in enumerate(self.shocks):
+                IRF_mat[i,j,:] = self.IRF[(varname,shockname)]
+
+        # b. draw shocks
+        epsilons = np.random.normal(size=(len(self.shocks),par.simT))
+
+        # c. simulate
+        sim_mat = np.zeros((len(self.varlist),par.simT))
+        simulate_agg(epsilons,IRF_mat,sim_mat)
+
+        for i,varname in enumerate(self.varlist):
+            sim.__dict__[f'd{varname}'][:] = sim_mat[i]
+
+        if do_print: print(f'aggregates simulated in {elapsed(t0)}')
+
+        # d. households
+        self.sim_alt = {}
+
+        t0 = time.time()
+
+        # i. policies
+        IRF_pols_mat = np.zeros((len(self.pols_hh),len(self.shocks),*sol.i.shape,par.T))
+        for i,polname in enumerate(self.pols_hh):
+            for j,shockname in enumerate(self.shocks):
+                IRF_pols_mat[i,j] = self.IRF['pols'][(polname,shockname)]
+
+        sim_pols_mat = self.sim_alt['pols'] = np.zeros((len(self.pols_hh),par.simT,*sol.i.shape))
+        
+        t0_ = time.time()
+        simulate_agg_hh(epsilons,IRF_pols_mat,sim_pols_mat)
+        t1_ = time.time()
+
+        for i,polname in enumerate(self.pols_hh):
+            sim_pols_mat[i] += getattr(sol,polname)
+
+        if do_print: print(f'household policies simulated in {elapsed(t0)} [in aggregation: {elapsed(t0_,t1_)}]')     
+
+        # ii. distribution
+        t0 = time.time()
+
+        sim_D = self.sim_alt['D'] = np.zeros((par.simT,*sim.D.shape))
+        sim_i = np.zeros(sol.i.shape,dtype=np.int_)
+        sim_w = np.zeros(sol.w.shape)
+
+        z_trans_T = par.z_trans_ss.T
+        z_trans_T_inv = np.linalg.inv(z_trans_T)
+
+        if len(self.grids_hh) == 1:
+
+            grid1 = getattr(par,f'{self.grids_hh[0]}_grid')
+
+            for t in range(par.simT):
+            
+                if t == 0:
+                    simulate_hh_D0(sim.D,z_trans_T_inv,z_trans_T,sim_D[t])    
+                else:
+                    find_i_and_w_1d_1d(sim_pols_mat[0,t],grid1,sim_i,sim_w)
+                    simulate_hh_forwards(sim_D[t-1],sim_i,sim_w,z_trans_T,sim_D[t])
+
+        else:
+
+            raise NotImplementedError
+
+        if do_print: print(f'distribution simulated in {elapsed(t0)}')     
+
+        # iii. aggregate
+        t0 = time.time()
+
+        for i,polname in enumerate(self.pols_hh):
+
+            Outputname_hh = f'd{polname.upper()}_hh'
+            self.sim_alt[Outputname_hh] = np.sum(sim_pols_mat[0,i]*sim_D,axis=tuple(range(1,sim_pols_mat[0,i].ndim+1)))
+            # sum over all but first dimension
+            
+        if do_print: print(f'aggregates calculated from distribution {elapsed(t0)}')       
+        
     ############
-    # 7. tests #
+    # 8. tests #
     ############
 
     test_hh_path = tests.hh_path
