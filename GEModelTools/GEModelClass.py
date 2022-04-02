@@ -1,6 +1,5 @@
 # contains main GEModelClass
 
-from re import A
 import time
 from copy import deepcopy
 import numpy as np
@@ -71,6 +70,11 @@ class GEModelClass:
                 
         for varname in self.inputs_hh:
             assert varname in self.varlist, f'{varname} not in .varlist'
+
+        for varname in self.grids_hh: assert not varname in self.varlist, f'{varname} is both in .grids_hh and .varlist'
+        for varname in self.pols_hh: assert not varname in self.varlist, f'{varname} is both in .pols_hh and .varlist'
+        for varname in self.outputs_hh: assert not varname in self.varlist, f'{varname} is both in .outputs_hh and .varlist'
+        for varname in self.intertemps_hh: assert not varname in self.varlist, f'{varname} is both in .intertemps_hh and .varlist'
 
         for varname in self.outputs_hh:
             varname_agg = f'{varname.upper()}_hh'
@@ -151,12 +155,19 @@ class GEModelClass:
             for shockname in self.shocks:
                 self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
 
-        # i. allocate path variables
+        # i. allocate simulation variables
         if hasattr(par,'simT'):
 
-            for polname in self.pols_hh:
-                setattr(self.sol,f'{polname}_sim',(par.simT,*self.sol.__dict__[polname].shape))
 
+            # a. policy
+            for polname in self.pols_hh:
+
+                setattr(self.sim,f'{polname}',(par.simT,*self.sol.__dict__[polname].shape))
+
+            # b. distribution
+            sim.D_sim = np.zeros((par.simT,*self.sim.D.shape))
+
+            # c. variables
             for varname in self.varlist:
                 
                 assert not varname == 'D', f'sim.{varname} not allowed'
@@ -1156,7 +1167,7 @@ class GEModelClass:
             for j,shockname in enumerate(self.shocks):
                 IRF_pols_mat[i,j] = self.IRF['pols'][(polname,shockname)]
 
-        sim_pols_mat = self.sim_alt['pols'] = np.zeros((len(self.pols_hh),par.simT,*sol.i.shape))
+        sim_pols_mat = np.zeros((len(self.pols_hh),par.simT,*sol.i.shape))
         
         t0_ = time.time()
         simulate_agg_hh(epsilons,IRF_pols_mat,sim_pols_mat)
@@ -1164,14 +1175,13 @@ class GEModelClass:
 
         for i,polname in enumerate(self.pols_hh):
             sim_pols_mat[i] += getattr(sol,polname)
-            sol.__dict__[f'{polname}_sim'] = sim_pols_mat[i]
+            sim.__dict__[polname] = sim_pols_mat[i]
 
         if do_print: print(f'household policies simulated in {elapsed(t0)} [in aggregation: {elapsed(t0_,t1_)}]')     
 
         # ii. distribution
         t0 = time.time()
 
-        sim_D = self.sim_alt['D'] = np.zeros((par.simT,*sim.D.shape))
         sim_i = np.zeros(sol.i.shape,dtype=np.int_)
         sim_w = np.zeros(sol.w.shape)
 
@@ -1185,10 +1195,10 @@ class GEModelClass:
             for t in range(par.simT):
             
                 if t == 0:
-                    simulate_hh_D0(sim.D,z_trans_T_inv,z_trans_T,sim_D[t])    
+                    simulate_hh_D0(sim.D,z_trans_T_inv,z_trans_T,sim.D_sim[t])    
                 else:
                     find_i_and_w_1d_1d(sim_pols_mat[0,t],grid1,sim_i,sim_w)
-                    simulate_hh_forwards(sim_D[t-1],sim_i,sim_w,z_trans_T,sim_D[t])
+                    simulate_hh_forwards(sim.D_sim[t-1],sim_i,sim_w,z_trans_T,sim.D_sim[t])
 
         else:
 
@@ -1199,10 +1209,12 @@ class GEModelClass:
         # iii. aggregate
         t0 = time.time()
 
-        for i,polname in enumerate(self.pols_hh):
+        for polname in self.pols_hh:
 
-            Outputname_hh = f'd{polname.upper()}_hh'
-            self.sim_alt[Outputname_hh] = np.sum(sim_pols_mat[0,i]*sim_D,axis=tuple(range(1,sim_pols_mat[0,i].ndim+1)))
+            Outputname_hh = f'{polname.upper()}_hh_from_D'
+            pol = sim.__dict__[polname]
+
+            self.sim.__dict__[Outputname_hh] = np.sum(pol*sim.D_sim,axis=tuple(range(1,pol.ndim)))
             # sum over all but first dimension
             
         if do_print: print(f'aggregates calculated from distribution {elapsed(t0)}')       
