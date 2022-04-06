@@ -21,21 +21,82 @@ class GEModelClass:
     # 1. setup #
     ############
 
-    def allocate_GE(self,sol_shape,update_hh=True,ss_nan=True):
+    def allocate_GE(self,update_hh=True,ss_nan=True):
         """ allocate GE variables """
 
+        # a1. input checks
+        ns_attrs = ['par','ss','path','sim']
+        for ns in ns_attrs:
+            assert ns in self.namespaces, f'{ns} must be a namespace'
+
         par = self.par
-        sol = self.sol
+        ss = self.ss
+        path = self.path
         sim = self.sim
 
-        #Nfix = sol_shape[0]
-        Nz = sol_shape[1]
-        Nendos = sol_shape[2:]
+        varlist_attrs = ['grids_hh','pols_hh','inputs_hh','outputs_hh','intertemps_hh',
+            'shocks','unknowns','targets','varlist']
 
-        path_sol_shape = (par.T,*sol_shape)
+        for varlist in varlist_attrs:
+
+            assert hasattr(self,varlist), f'.{varlist} must be defined, list[str]'
+            strlist = getattr(self,varlist)
+            assert type(strlist) is list, f'.{varlist} must be a list, but is {type(strlist)}'
+            for el in varlist:
+                assert type(el) is str, f'.{varlist} must be a list of strings' 
+                assert not el == 'pol_indices', f'variable name {el} not allowed'
+                assert not el == 'pol_weights', f'variable name {el} not allowed'
+
+        for attr in ['solve_hh_backwards','block_pre','block_post']:
+            assert hasattr(self,attr), f'.{attr} must be defined'
+
+        # ensure stuff is saved
+        for attr in ns_attrs + varlist_attrs + ['jac','H_U','H_Z','jac_hh','IRF']:
+            if not attr in self.other_attrs:
+                self.other_attrs.append(attr)
+
+        # a2. naming checks
+        for varname in self.inputs_hh:
+            assert varname in self.varlist, f'{varname} not in .varlist'
+
+        for varname in self.grids_hh: 
+            assert not varname in self.varlist, f'{varname} is both in .grids_hh and .varlist'
         
-        # a. defaults
+        for varname in self.pols_hh: 
+            assert not varname in self.varlist, f'{varname} is both in .pols_hh and .varlist'
+        
+        for varname in self.outputs_hh: 
+            assert not varname in self.varlist, f'{varname} is both in .outputs_hh and .varlist'
+        
+        for varname in self.intertemps_hh: 
+            assert not varname in self.varlist, f'{varname} is both in .intertemps_hh and .varlist'
+
+        for varname in self.outputs_hh:
+            varname_agg = f'{varname.upper()}_hh'
+            assert varname_agg in self.varlist, f'{varname_agg} not in .varlist'
+            hasattr(self.path,varname_agg), f'{varname_agg} not in .path'
+
+        for varname in self.pols_hh:
+            assert varname in self.outputs_hh, f'{varname} is in .pols_hh, but not .outputs_hh'
+            
+        for varname in self.shocks + self.unknowns + self.targets:
+            assert varname in self.varlist, f'{varname} not in .varlist'
+
+        # a3. dimensional checks
+        sol_shape_endo = []
+        for varname in self.grids_hh:
+            Nx = f'N{varname}'
+            assert hasattr(par,Nx), f'{Nx} not in .par'            
+            sol_shape_endo.append(par.__dict__[Nx])
+
+        assert hasattr(self.par,'Nfix'), 'par.Nfix must be specified'
+        assert hasattr(self.par,'Nz'), 'par.Nz must be specified'
+
+        sol_shape = (par.Nfix,par.Nz,*sol_shape_endo)
+                
+        # b. defaults in par
         par.__dict__.setdefault('T',500)
+        par.__dict__.setdefault('simT',1_000)
         par.__dict__.setdefault('max_iter_solve',50_000)
         par.__dict__.setdefault('max_iter_simulate',50_000)
         par.__dict__.setdefault('max_iter_broyden',100)
@@ -47,50 +108,13 @@ class GEModelClass:
             par.__dict__.setdefault(f'jump_{varname}',0.0)
             par.__dict__.setdefault(f'rho_{varname}',0.0)
 
-        assert hasattr(self.par,'Nz'), 'par.Nz must be specified'
-
-        # b. checks
-        assert Nz == par.Nz, f'sol_shape is wrong, sol_shape[1] = {Nz}, par.Nz = {par.Nz}'
-
-        attrs = ['grids_hh','pols_hh','inputs_hh','intertemps_hh']
-        attrs += ['shocks','unknowns','targets','varlist']
-        attrs += ['par','sol','sim','ss','path']
-        for attr in attrs:
-            assert hasattr(self,attr), f'missing .{attr}'
-
-        for attr in attrs + ['jac','H_U','H_Z','jac_hh','IRF']:
-            if not attr in self.other_attrs:
-                self.other_attrs.append(attr)
-
-        for i,(varname,Nendo) in enumerate(zip(self.grids_hh,Nendos)):
-            Nx = f'N{varname}'
-            assert hasattr(par,Nx), f'{Nx} not in .par'
-            Nxval = getattr(par,Nx)
-            assert Nendo == Nxval, f'sol_shape is wrong, sol_shape[{i}] = {Nendo}, par.{Nx} = {Nxval}'
-                
-        for varname in self.inputs_hh:
-            assert varname in self.varlist, f'{varname} not in .varlist'
-
-        for varname in self.grids_hh: assert not varname in self.varlist, f'{varname} is both in .grids_hh and .varlist'
-        for varname in self.pols_hh: assert not varname in self.varlist, f'{varname} is both in .pols_hh and .varlist'
-        for varname in self.outputs_hh: assert not varname in self.varlist, f'{varname} is both in .outputs_hh and .varlist'
-        for varname in self.intertemps_hh: assert not varname in self.varlist, f'{varname} is both in .intertemps_hh and .varlist'
-
-        for varname in self.outputs_hh:
-            varname_agg = f'{varname.upper()}_hh'
-            assert varname_agg in self.varlist, f'{varname_agg} not in .varlist'
-            hasattr(self.path,varname_agg), f'{varname_agg} not in .path'
-
-        for varname in self.shocks + self.unknowns + self.targets:
-            assert varname in self.varlist, f'{varname} not in .varlist'
-
         # c. allocate grids and transition matrices
         if update_hh:
 
             for varname in self.grids_hh:
 
                 gridname = f'{varname}_grid' 
-                Nx = getattr(par,f'N{varname}')
+                Nx = par.__dict__[f'N{varname}']
                 gridarray = np.zeros(Nx)
                 setattr(par,gridname,gridarray)
                 
@@ -102,36 +126,46 @@ class GEModelClass:
             par.z_trans_path = np.zeros((par.T,par.Nz,par.Nz))        
 
         # d. allocate household variables
+        path_pol_shape = (par.T,*sol_shape)
+        sim_pol_shape = (par.simT,*sol_shape)
         if update_hh:
-
+            
+            # i. ss and path
             for varname in self.outputs_hh + self.intertemps_hh:
+                ss.__dict__[varname] = np.zeros(sol_shape)
+                path.__dict__[varname] = np.zeros(path_pol_shape)
 
-                assert not varname == 'i', f'sol.{varname} not allowed'
-                assert not varname == 'w', f'sol.{varname} not allowed'
+            ss.D = np.zeros(sol_shape)
+            ss.pol_indices = np.zeros(sol_shape,dtype=np.int_)
+            ss.pol_weights = np.zeros(sol_shape)
 
-                array = np.zeros(sol_shape)
-                setattr(sol,varname,array)
-                array_path = np.zeros(path_sol_shape)
-                setattr(sol,f'path_{varname}',array_path)
+            path.D = np.zeros(path_pol_shape)
+            path.pol_indices = np.zeros(path_pol_shape,dtype=np.int_)
+            path.pol_weights = np.zeros(path_pol_shape)
 
-            sol.i = np.zeros(sol_shape,dtype=np.int_)
-            sol.path_i = np.zeros(path_sol_shape,dtype=np.int_)
-            sol.w = np.zeros(sol_shape)
-            sol.path_w = np.zeros(path_sol_shape)
+            # ii. sim
+            for polname in self.pols_hh:
+                sim.__dict__[polname] = np.zeros(sim_pol_shape)
+                sim.__dict__[f'{polname.upper()}_hh_from_D'] = np.zeros(par.simT)
 
-            # e. allocate distribution
-            sim.D = np.zeros(sol_shape)
-            sim.path_D = np.zeros(path_sol_shape)
+            sim.D = np.zeros(sim_pol_shape)
+            sim.pol_indices = np.zeros(sim_pol_shape,dtype=np.int_)
+            sim.pol_weights = np.zeros(sim_pol_shape)
 
-        # f. allocate path variables
+        # e. allocate path and sim variables
         path_shape = (len(self.unknowns)*par.T,par.T)
         for varname in self.varlist:
-            if ss_nan: setattr(self.ss,varname,np.nan)
-            setattr(self.path,varname,np.zeros(path_shape))
+            if ss_nan: ss.__dict__[varname] = np.nan
+            path.__dict__[varname] = np.zeros(path_shape)
+            sim.__dict__[f'd{varname}'] = np.zeros(par.simT)
 
-        # g. allocate Jacobians
+        # f. allocate Jacobians
         if update_hh:
             self.jac_hh = {}
+            for outputname in self.outputs_hh:
+                for inputname in self.inputs_hh:
+                    key = (f'{outputname.upper()}_hh',inputname)
+                    self.jac_hh[key] = np.zeros((par.T,par.T))            
 
         self.jac = {}
         for outputname in self.varlist:
@@ -149,31 +183,12 @@ class GEModelClass:
 
         self.G_U = np.zeros(self.H_Z.shape)
 
+        # g. allocate IRFs
         self.IRF = {}
         for varname in self.varlist:
             self.IRF[varname] = np.repeat(np.nan,par.T)
             for shockname in self.shocks:
                 self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
-
-        # i. allocate simulation variables
-        if hasattr(par,'simT'):
-
-
-            # a. policy
-            for polname in self.pols_hh:
-
-                setattr(self.sim,f'{polname}',(par.simT,*self.sol.__dict__[polname].shape))
-
-            # b. distribution
-            sim.D_sim = np.zeros((par.simT,*self.sim.D.shape))
-
-            # c. variables
-            for varname in self.varlist:
-                
-                assert not varname == 'D', f'sim.{varname} not allowed'
-                assert not varname == 'path_D', f'sim.{varname} not allowed'
-
-                setattr(self.sim,f'd{varname}',np.zeros(par.simT))
 
     def create_grids(self):
         """ create grids """
@@ -188,10 +203,10 @@ class GEModelClass:
     def print_unpack_varlist(self):
         """ print varlist for use in evaluate_path() """
 
-        print(f'    for thread in nb.prange(threads):\n')
+        print(f'    for ncol in range(ncols):\n')
         print('        # unpack')
         for varname in self.varlist:
-            print(f'        {varname} = path.{varname}[thread,:]')
+            print(f'        {varname} = path.{varname}[ncol,:]')
 
     def update_aggregate_settings(self,shocks=None,unknowns=None,targets=None):
         """ update aggregate settings and re-allocate jac etc. """
@@ -200,23 +215,22 @@ class GEModelClass:
         if not unknowns is None: self.unknowns = unknowns
         if not targets is None: self.targets = targets
 
-        sol_shape = self.sol.i.shape
-        self.allocate_GE(sol_shape,update_hh=False,ss_nan=False)
+        self.allocate_GE(update_hh=False,ss_nan=False)
 
     ####################
     # 2. steady state #
     ###################
 
     def _find_i_and_w(self):
-        """ find indices and weigths for simulation """
+        """ find indices and weights for simulation """
 
         par = self.par
-        sol = self.sol
+        ss = self.ss
 
         if len(self.grids_hh) == 1:
-            pol1 = getattr(sol,f'{self.grids_hh[0]}')
+            pol1 = getattr(ss,f'{self.grids_hh[0]}')
             grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
-            find_i_and_w_1d_1d(pol1,grid1,sol.i,sol.w)
+            find_i_and_w_1d_1d(pol1,grid1,ss.pol_indices,ss.pol_weights)
         else:
             raise NotImplementedError
 
@@ -232,25 +246,24 @@ class GEModelClass:
         with jit(self) as model:
             
             par = model.par
-            sol = model.sol
             ss = model.ss
 
             it = 0
             while True:
 
                 # i. old policy
-                old = {pol:getattr(sol,pol).copy() for pol in self.pols_hh}
+                old = {pol:getattr(ss,pol).copy() for pol in self.pols_hh}
 
                 # ii. step backwards
                 step_vars = {'par':par,'z_grid':par.z_grid_ss,'z_trans_plus':par.z_trans_ss}
                 for varname in self.inputs_hh: step_vars[varname] = getattr(ss,varname)
-                for varname in self.outputs_hh + self.intertemps_hh: step_vars[varname] = getattr(sol,varname)
-                for varname in self.intertemps_hh: step_vars[f'{varname}_plus'] = getattr(sol,varname)
+                for varname in self.outputs_hh + self.intertemps_hh: step_vars[varname] = getattr(ss,varname)
+                for varname in self.intertemps_hh: step_vars[f'{varname}_plus'] = getattr(ss,varname)
         
                 self.solve_hh_backwards(**step_vars)
 
                 # iii. check change in policy
-                max_abs_diff = max([np.max(np.abs(getattr(sol,pol)-old[pol])) for pol in self.pols_hh])
+                max_abs_diff = max([np.max(np.abs(getattr(ss,pol)-old[pol])) for pol in self.pols_hh])
                 if max_abs_diff < par.tol_solve: 
                     break
                 
@@ -268,25 +281,21 @@ class GEModelClass:
         """ simulate the household problem in steady state """
         
         par = self.par
-        sol = self.sol
-        sim = self.sim  
+        ss = self.ss
 
         t0 = time.time()
 
         if find_i_and_w: self._find_i_and_w()
 
         # a. initial guess
-        basepol = getattr(sol,self.pols_hh[0])
-        sim.D = np.zeros(basepol.shape)
-
-        Nfix = basepol.shape[0]
-        for i_fix in range(Nfix):
+        ss.D[:] = 0.0
+        for i_fix in range(par.Nfix):
             if len(self.grids_hh) == 1:
-                sim.D[i_fix,:,0] = par.z_ergodic_ss/Nfix
+                ss.D[i_fix,:,0] = par.z_ergodic_ss/par.Nfix
             elif len(self.grids_hh) == 2:
-                sim.D[i_fix,:,0,0] = par.z_ergodic_ss/Nfix
+                ss.D[i_fix,:,0,0] = par.z_ergodic_ss/par.Nfix
             elif len(self.grids_hh) == 3:
-                sim.D[i_fix,:,0,0,0] = par.z_ergodic_ss/Nfix
+                ss.D[i_fix,:,0,0,0] = par.z_ergodic_ss/par.Nfix
             else:
                 raise NotImplementedError
     
@@ -294,10 +303,9 @@ class GEModelClass:
         with jit(self) as model:
 
             par = model.par
-            sol = model.sol
-            sim = model.sim
+            ss = model.ss
             
-            it = simulate_hh_ss(par,sol,sim)
+            it = simulate_hh_ss(par,ss)
 
         if do_print: print(f'household problem in ss simulated in {elapsed(t0)} [{it} iterations]')
 
@@ -314,12 +322,12 @@ class GEModelClass:
         """ find indices and weights for simulation along the transition path"""
 
         par = self.par
-        sol = self.sol
+        path = self.path
 
         if len(self.grids_hh) == 1:
-            path_pol1 = getattr(sol,f'path_{self.grids_hh[0]}')
+            path_pol1 = getattr(path,f'{self.grids_hh[0]}')
             grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
-            find_i_and_w_1d_1d_path(par.T,path_pol1,grid1,sol.path_i,sol.path_w)
+            find_i_and_w_1d_1d_path(par.T,path_pol1,grid1,path.pol_indices,path.pol_weights)
         else:
             raise NotImplemented
 
@@ -335,7 +343,7 @@ class GEModelClass:
         with jit(self) as model:
 
             par = model.par
-            sol = model.sol
+            ss = model.ss
             path = model.path
             
             for k in range(par.T):
@@ -345,14 +353,14 @@ class GEModelClass:
                 # i. variables
                 step_vars = {'par':par,'z_grid':par.z_grid_path[t]}
                 for varname in self.inputs_hh: step_vars[varname] = getattr(path,varname)[0,t]
-                for varname in self.outputs_hh + self.intertemps_hh: step_vars[varname] = getattr(sol,f'path_{varname}')[t]
+                for varname in self.outputs_hh + self.intertemps_hh: step_vars[varname] = getattr(path,f'{varname}')[t]
                 
                 if t == par.T-1:
                     step_vars['z_trans_plus'] = par.z_trans_ss
-                    for varname in self.intertemps_hh: step_vars[f'{varname}_plus'] = getattr(sol,varname)
+                    for varname in self.intertemps_hh: step_vars[f'{varname}_plus'] = getattr(ss,varname)
                 else:
                     step_vars['z_trans_plus'] = par.z_trans_path[t+1]
-                    for varname in self.intertemps_hh: step_vars[f'{varname}_plus'] = getattr(sol,f'path_{varname}')[t+1]
+                    for varname in self.intertemps_hh: step_vars[f'{varname}_plus'] = getattr(path,f'{varname}')[t+1]
 
                 # ii. step backwards
                 self.solve_hh_backwards(**step_vars)
@@ -370,7 +378,7 @@ class GEModelClass:
         if find_i_and_w: self._find_i_and_w_path()
 
         with jit(self) as model:
-            simulate_hh_path(model.par,model.sol,model.sim)
+            simulate_hh_path(model.par,model.ss,model.path)
 
         if do_print: print(f'household problem simulated along transition in {elapsed(t0)}')
 
@@ -455,8 +463,8 @@ class GEModelClass:
         """ compute Jacobian of household problem """
 
         par = self.par
-        sol = self.sol
-        sim = self.sim
+        ss = self.ss
+        path = self.path
         
         if s_list is None: s_list = list(range(par.T))
 
@@ -478,7 +486,7 @@ class GEModelClass:
 
         # c. simulate
         par_shock = deepcopy(self.par)
-        sol_shock = deepcopy(self.sol)
+        path_shock = deepcopy(self.path)
 
         for s in s_list:
 
@@ -487,22 +495,20 @@ class GEModelClass:
             # i. before shock only time to shock matters
             par.z_grid_path[:s+1] = par_shock.z_grid_path[par.T-(s+1):]
             par.z_trans_path[:s+1] = par_shock.z_trans_path[par.T-(s+1):]
-            sol.path_i[:s+1] = sol_shock.path_i[par.T-(s+1):]
-            sol.path_w[:s+1] = sol_shock.path_w[par.T-(s+1):]
+            path.pol_indices[:s+1] = path_shock.pol_indices[par.T-(s+1):]
+            path.pol_weights[:s+1] = path_shock.pol_weights[par.T-(s+1):]
 
             for outputname in self.outputs_hh:
-                varname = f'path_{outputname}'                     
-                sol.__dict__[varname][:s+1] = sol_shock.__dict__[varname][par.T-(s+1):]
+                path.__dict__[outputname][:s+1] = path_shock.__dict__[outputname][par.T-(s+1):]
 
             # ii. after shock solution is ss
-            sol.path_i[s+1:] = sol.i
-            sol.path_w[s+1:] = sol.w
+            path.pol_indices[s+1:] = ss.pol_indices
+            path.pol_weights[s+1:] = ss.pol_weights
             par.z_grid_path[s+1:] = par.z_grid_ss
             par.z_trans_path[s+1:] = par.z_trans_ss
 
             for outputname in self.outputs_hh:
-                varname = f'path_{outputname}'                     
-                sol.__dict__[varname][s+1:] = sol.__dict__[outputname]
+                path.__dict__[outputname][s+1:] = ss.__dict__[outputname]
 
             # iii. simulate path
             self.simulate_hh_path()
@@ -512,11 +518,10 @@ class GEModelClass:
                 
                 jac_hh_ = jac_hh[(f'{outputname.upper()}_hh',inputname)]
 
-                varname = f'path_{outputname}'
                 for t in range(par.T):
 
-                    basevalue = np.sum(sol.__dict__[outputname]*sim.D)
-                    shockvalue = np.sum(sol.__dict__[varname][t]*sim.path_D[t])
+                    basevalue = np.sum(ss.__dict__[outputname]*ss.D)
+                    shockvalue = np.sum(path.__dict__[outputname][t]*path.D[t])
 
                     jac_hh_[t,s] = (shockvalue-basevalue)/dx
 
@@ -526,9 +531,9 @@ class GEModelClass:
         """ compute Jacobian of household problem with fake news algorithm """
         
         par = self.par
-        sol = self.sol
-        sim = self.sim
-        
+        ss = self.ss
+        path = self.path
+
         t0_all = time.time()
         
         if do_print or do_print_full: 
@@ -549,21 +554,21 @@ class GEModelClass:
             shockarray[0,-1] += dx
 
         self.solve_hh_path(do_print=False)
-        self.sol_fakenews[inputname] = deepcopy(self.sol)
+        self._path_fakenews[inputname] = deepcopy(self.path)
 
         if do_print_full: print(f'household problem solved backwards in {elapsed(t0)}')
 
         # b. step 2: derivatives
         t0 = time.time()
         
-        diffs = self.diffs[inputname] = {}
+        diffs = {}
 
         # allocate
-        diffs['D'] = np.zeros((par.T,*sim.D.shape))
+        diffs['D'] = np.zeros((par.T,*ss.D.shape))
         for varname in self.outputs_hh: diffs[varname] = np.zeros(par.T)
         
         # compute
-        D_ss = sim.D
+        D_ss = ss.D
         D_ini = np.zeros(D_ss.shape)     
         
         z_trans_ss_T = par.z_trans_ss.T
@@ -575,16 +580,14 @@ class GEModelClass:
 
             z_trans_T = par.z_trans_path[t_].T
             simulate_hh_D0(D_ss,z_trans_ss_T_inv,z_trans_T,D_ini)
-            simulate_hh_forwards(D_ini,sol.path_i[t_],sol.path_w[t_],z_trans_ss_T,diffs['D'][s])
+            simulate_hh_forwards(D_ini,path.pol_indices[t_],path.pol_weights[t_],z_trans_ss_T,diffs['D'][s])
             
-            diffs['D'][s] = (diffs['D'][s]-sim.D)/dx
+            diffs['D'][s] = (diffs['D'][s]-ss.D)/dx
 
             for outputname in self.outputs_hh:
 
-                varname = f'path_{outputname}'
-
-                basevalue = np.sum(sol.__dict__[outputname]*sim.D)
-                shockvalue = np.sum(sol.__dict__[varname][t_]*D_ini)
+                basevalue = np.sum(ss.__dict__[outputname]*ss.D)
+                shockvalue = np.sum(path.__dict__[outputname][t_]*D_ini)
                 diffs[outputname][s] = (shockvalue-basevalue)/dx 
         
         if do_print_full: print(f'derivatives calculated in {elapsed(t0)}')
@@ -596,11 +599,11 @@ class GEModelClass:
         def demean(x):
             return x - x.sum()/x.size
 
-        exp = self.exp[inputname] = {}
+        exp = {}
 
         for outputname in self.outputs_hh:
 
-            sol_ss = sol.__dict__[outputname]
+            sol_ss = ss.__dict__[outputname]
 
             exp[outputname] = np.zeros((par.T-1,*sol_ss.shape))
             exp[outputname][0] = demean(sol_ss)
@@ -608,7 +611,7 @@ class GEModelClass:
         for t in range(1,par.T-1):
             
             for outputname in self.outputs_hh:
-                simulate_hh_forwards_transpose(exp[outputname][t-1],sol.i,sol.w,par.z_trans_ss,exp[outputname][t])
+                simulate_hh_forwards_transpose(exp[outputname][t-1],ss.pol_indices,ss.pol_weights,par.z_trans_ss,exp[outputname][t])
                 exp[outputname][t] = demean(exp[outputname][t])
             
         if do_print_full: print(f'expecation factors calculated in {elapsed(t0)}')
@@ -616,7 +619,7 @@ class GEModelClass:
         # d. step 4: F        
         t0 = time.time()
 
-        F = self.F[inputname] = {}
+        F = {}
         for outputname in self.outputs_hh:
         
             F[outputname] = np.zeros((par.T,par.T))
@@ -651,10 +654,7 @@ class GEModelClass:
         path_original = deepcopy(self.path)
         if not do_direct: assert s_list is None, 'not implemented for fake news algorithm'
 
-        self.sol_fakenews = {}
-        self.diffs = {}
-        self.exp = {}
-        self.F = {}
+        self._path_fakenews = {}
 
         # a. ghost run
         jac_hh_ghost = {}
@@ -744,7 +744,7 @@ class GEModelClass:
             # ii. evaluate
             self._set_unknowns(x0,inputs,parallel=True)
             t0_ = time.time()
-            self.evaluate_path(threads=len(inputs)*par.T,use_jac_hh=True)
+            self.evaluate_path(ncols=len(inputs)*par.T,use_jac_hh=True)
             evaluate_t += time.time()-t0_
             errors = self._get_errors(inputs,parallel=True)
 
@@ -887,19 +887,18 @@ class GEModelClass:
 
         if do_print: print(f'linear transition path found in {elapsed(t0)} [finding solution matrix: {elapsed(t0_,t1_)}]')
 
-    def evaluate_path(self,threads=1,use_jac_hh=False):
+    def evaluate_path(self,ncols=1,use_jac_hh=False):
         """ evaluate transition path """
 
-        sol = self.sol
-        sim = self.sim
+        par = self.par
         ss = self.ss
         path = self.path
 
-        assert use_jac_hh or threads == 1
+        assert use_jac_hh or ncols == 1
         
         # a. before household block
         with jit(self) as model:
-            self.block_pre(model.par,model.sol,model.sim,model.ss,model.path,threads=threads)
+            self.block_pre(model.par,model.ss,model.path,ncols=ncols)
 
         # b. household block
         if use_jac_hh and len(self.outputs_hh) > 0: # linearized
@@ -938,8 +937,8 @@ class GEModelClass:
                 Outputname_hh = f'{outputname.upper()}_hh'
                 pathvalue = path.__dict__[Outputname_hh]
 
-                pol = sol.__dict__[f'path_{outputname}']
-                pathvalue[:] = np.sum(pol*sim.path_D,axis=tuple(range(1,pol.ndim)))
+                pol = path.__dict__[outputname]
+                pathvalue[:] = np.sum(pol*path.D,axis=tuple(range(1,pol.ndim)))
                 # sum over all but first dimension
 
         else:
@@ -948,13 +947,11 @@ class GEModelClass:
                 
         # c. after household block
         with jit(self) as model:
-            self.block_post(model.par,model.sol,model.sim,model.ss,model.path,threads=threads)
+            self.block_post(model.par,model.ss,model.path,ncols=ncols)
 
     def _evaluate_H(self,x,do_print=False):
         """ compute error in equation system for targets """
         
-        par = self.par
-
         # a. evaluate
         self._set_unknowns(x,self.unknowns)
         self.evaluate_path()
@@ -1060,14 +1057,13 @@ class GEModelClass:
     # 7. simulate #
     ###############
 
-    def prepare_simulate(self,reuse_G_U=False,do_print=True):
+    def prepare_simulate(self,skip_hh=False,reuse_G_U=False,do_print=True):
         """ prepare model for simulation by calculating IRFs """
 
         par = self.par
         ss = self.ss
-        sol = self.sol
-        sol_fakenews = self.sol_fakenews
         path = self.path
+        if not skip_hh: path_fakenews = self._path_fakenews
 
         t0 = time.time()
 
@@ -1082,7 +1078,7 @@ class GEModelClass:
         # c. IRFs
         for i_input,shockname in enumerate(self.shocks):
             
-            # i. shock
+            # i. shocks
             dZ = np.zeros((len(self.shocks),par.T))        
             dZ[i_input,:] = path.__dict__[shockname][0,:]-ss.__dict__[shockname]
 
@@ -1105,36 +1101,42 @@ class GEModelClass:
                     self.IRF[(varname,shockname)][:] += self.jac[(varname,inputname)]@self.IRF[(inputname,shockname)]
 
         # d. household
-        t0_hh = time.time()
+        if not skip_hh:
 
-        dpols = {}
-        for polname in self.pols_hh:
-            base = getattr(sol_fakenews['ghost'],f'path_{polname}')
-            for inputname in self.inputs_hh:    
-                value = getattr(sol_fakenews[inputname],f'path_{polname}')
-                dpols[(polname,inputname)] = np.flip((value-base)/1e-6,axis=0)
+            t0_hh = time.time()
 
-        self.IRF['pols'] = {}
-        for shockname in self.shocks:  
+            dpols = {}
             for polname in self.pols_hh:
-                IRF_pols = self.IRF['pols'][(polname,shockname)] = np.zeros((*sol.i.shape,par.T))
+                base = path_fakenews['ghost'].__dict__[polname]
                 for inputname in self.inputs_hh:    
-                    update_IRF_hh(IRF_pols,dpols[(polname,inputname)],self.IRF[(inputname,shockname)])
-                    
-        t1_hh = time.time()
+                    value = path_fakenews[inputname].__dict__[polname]
+                    dpols[(polname,inputname)] = np.flip((value-base)/1e-6,axis=0)
 
-        if do_print: print(f'simulation prepared in {elapsed(t0)} [solution matrix: {elapsed(t0_sol,t1_sol)}, household: {elapsed(t0_hh,t1_hh)}]')
+            self.IRF['pols'] = {}
+            for shockname in self.shocks:  
+                for polname in self.pols_hh:
+                    IRF_pols = self.IRF['pols'][(polname,shockname)] = np.zeros((*ss.pol_indices.shape,par.T))
+                    for inputname in self.inputs_hh:    
+                        update_IRF_hh(IRF_pols,dpols[(polname,inputname)],self.IRF[(inputname,shockname)])
+                        
+            t1_hh = time.time()
 
-    def simulate(self,do_prepare=True,reuse_G_U=False,do_print=False):
+        if do_print: 
+            print(f'simulation prepared in {elapsed(t0)} [solution matrix: {elapsed(t0_sol,t1_sol)}',end='')
+            if skip_hh:
+                print(f']') 
+            else:
+                print(f', household: {elapsed(t0_hh,t1_hh)}]')
+
+    def simulate(self,do_prepare=True,skip_hh=False,reuse_G_U=False,do_print=False):
         """ simulate the model """
 
         par = self.par
+        ss = self.ss
         sim = self.sim
-        sol = self.sol
-        path = self.path
         
         # a. prepare simulation
-        if do_prepare: self.prepare_simulate(reuse_G_U=reuse_G_U,do_print=do_print)
+        if do_prepare: self.prepare_simulate(skip_hh=skip_hh,reuse_G_U=reuse_G_U,do_print=do_print)
 
         t0 = time.time()
 
@@ -1157,67 +1159,66 @@ class GEModelClass:
         if do_print: print(f'aggregates simulated in {elapsed(t0)}')
 
         # d. households
-        self.sim_alt = {}
+        if not skip_hh:
 
-        t0 = time.time()
+            t0 = time.time()
 
-        # i. policies
-        IRF_pols_mat = np.zeros((len(self.pols_hh),len(self.shocks),*sol.i.shape,par.T))
-        for i,polname in enumerate(self.pols_hh):
-            for j,shockname in enumerate(self.shocks):
-                IRF_pols_mat[i,j] = self.IRF['pols'][(polname,shockname)]
+            # i. policies
+            IRF_pols_mat = np.zeros((len(self.pols_hh),len(self.shocks),*ss.pol_indices.shape,par.T))
+            for i,polname in enumerate(self.pols_hh):
+                for j,shockname in enumerate(self.shocks):
+                    IRF_pols_mat[i,j] = self.IRF['pols'][(polname,shockname)]
 
-        sim_pols_mat = np.zeros((len(self.pols_hh),par.simT,*sol.i.shape))
-        
-        t0_ = time.time()
-        simulate_agg_hh(epsilons,IRF_pols_mat,sim_pols_mat)
-        t1_ = time.time()
-
-        for i,polname in enumerate(self.pols_hh):
-            sim_pols_mat[i] += getattr(sol,polname)
-            sim.__dict__[polname] = sim_pols_mat[i]
-
-        if do_print: print(f'household policies simulated in {elapsed(t0)} [in aggregation: {elapsed(t0_,t1_)}]')     
-
-        # ii. distribution
-        t0 = time.time()
-
-        sim_i = np.zeros(sol.i.shape,dtype=np.int_)
-        sim_w = np.zeros(sol.w.shape)
-
-        z_trans_T = par.z_trans_ss.T
-        z_trans_T_inv = np.linalg.inv(z_trans_T)
-
-        if len(self.grids_hh) == 1:
-
-            grid1 = getattr(par,f'{self.grids_hh[0]}_grid')
-
-            for t in range(par.simT):
+            sim_pols_mat = np.zeros((len(self.pols_hh),par.simT,*ss.pol_indices.shape))
             
-                if t == 0:
-                    simulate_hh_D0(sim.D,z_trans_T_inv,z_trans_T,sim.D_sim[t])    
-                else:
-                    find_i_and_w_1d_1d(sim_pols_mat[0,t],grid1,sim_i,sim_w)
-                    simulate_hh_forwards(sim.D_sim[t-1],sim_i,sim_w,z_trans_T,sim.D_sim[t])
+            t0_ = time.time()
+            simulate_agg_hh(epsilons,IRF_pols_mat,sim_pols_mat)
+            t1_ = time.time()
 
-        else:
+            for i,polname in enumerate(self.pols_hh):
+                sim_pols_mat[i] += ss.__dict__[polname]
+                sim.__dict__[polname] = sim_pols_mat[i]
 
-            raise NotImplementedError
+            if do_print: print(f'household policies simulated in {elapsed(t0)} [in aggregation: {elapsed(t0_,t1_)}]')     
 
-        if do_print: print(f'distribution simulated in {elapsed(t0)}')     
+            # ii. distribution
+            t0 = time.time()
 
-        # iii. aggregate
-        t0 = time.time()
+            z_trans_T = par.z_trans_ss.T
+            z_trans_T_inv = np.linalg.inv(z_trans_T)
 
-        for polname in self.pols_hh:
+            if len(self.grids_hh) == 1:
 
-            Outputname_hh = f'{polname.upper()}_hh_from_D'
-            pol = sim.__dict__[polname]
+                grid1 = getattr(par,f'{self.grids_hh[0]}_grid')
 
-            self.sim.__dict__[Outputname_hh] = np.sum(pol*sim.D_sim,axis=tuple(range(1,pol.ndim)))
-            # sum over all but first dimension
-            
-        if do_print: print(f'aggregates calculated from distribution {elapsed(t0)}')       
+                for t in range(par.simT):
+                
+                    if t == 0:
+                        simulate_hh_D0(ss.D,z_trans_T_inv,z_trans_T,sim.D[t])    
+                    else:
+                        sim_i = sim.pol_indices[t-1]
+                        sim_w = sim.pol_weights[t-1]
+                        find_i_and_w_1d_1d(sim_pols_mat[0,t],grid1,sim_i,sim_w)
+                        simulate_hh_forwards(sim.D[t-1],sim_i,sim_w,z_trans_T,sim.D[t])
+
+            else:
+
+                raise NotImplementedError
+
+            if do_print: print(f'distribution simulated in {elapsed(t0)}')     
+
+            # iii. aggregate
+            t0 = time.time()
+
+            for polname in self.pols_hh:
+
+                Outputname_hh = f'{polname.upper()}_hh_from_D'
+                pol = sim.__dict__[polname]
+
+                self.sim.__dict__[Outputname_hh] = np.sum(pol*sim.D,axis=tuple(range(1,pol.ndim)))
+                # sum over all but first dimension
+                
+            if do_print: print(f'aggregates calculated from distribution {elapsed(t0)}')       
         
     ############
     # 8. tests #

@@ -14,9 +14,8 @@ def hh_path(self):
     print('note: inputs = steady state value -> expected: constant value (straigt line)\n')
 
     par = self.par
-    sim = self.sim
-    sol = self.sol
     ss = self.ss
+    path = self.path
 
     # a. solution and simulation hh along path
     self._set_inputs_hh_ss()
@@ -27,8 +26,8 @@ def hh_path(self):
     fig = plt.figure(figsize=(6,len(self.outputs_hh)*4))
     for i,outputname in enumerate(self.outputs_hh):
         
-        D = sim.path_D
-        pol = getattr(sol,f'path_{outputname}')
+        D = path.D
+        pol = getattr(path,f'{outputname}')
         y = np.array([np.sum(D[t]*pol[t])for t in range(par.T)])
         y_ss = getattr(ss,f'{outputname.upper()}_hh')
 

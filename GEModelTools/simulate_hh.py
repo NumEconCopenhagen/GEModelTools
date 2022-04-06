@@ -121,24 +121,24 @@ def simulate_hh_forwards_transpose(D,i,w,z_trans,D_plus):
         raise ValueError('too many dimensions')
 
 @nb.njit
-def simulate_hh_ss(par,sol,sim):
-    """ simulate forward to steady state """
+def simulate_hh_ss(par,ss):
+    """ simulate forwards to steady state """
 
     # a. prepare
     z_trans = par.z_trans_ss
     z_trans_T = z_trans.T.copy()    
-    D_lag = np.zeros(sim.D.shape)
+    D_lag = np.zeros(ss.D.shape)
 
     # b. iterate
     it = 0
     while True:
         
         # i. update distribution
-        D_lag = sim.D.copy()
-        simulate_hh_forwards(D_lag,sol.i,sol.w,z_trans_T,sim.D)
+        D_lag = ss.D.copy()
+        simulate_hh_forwards(D_lag,ss.pol_indices,ss.pol_weights,z_trans_T,ss.D)
 
         # ii. check convergence
-        if np.max(np.abs(sim.D-D_lag)) < par.tol_simulate: 
+        if np.max(np.abs(ss.D-D_lag)) < par.tol_simulate: 
             return it
 
         # iii. increment
@@ -147,18 +147,18 @@ def simulate_hh_ss(par,sol,sim):
             raise ValueError('simulate_hh_ss(), too many iterations')
 
 @nb.njit
-def simulate_hh_path(par,sol,sim):
+def simulate_hh_path(par,ss,path):
     """ simulate along path """
 
     for t in range(par.T):
 
-        D = sim.path_D[t]
+        D = path.D[t]
         z_trans_T = par.z_trans_path[t].T
 
-        # a. initial distribution
+        # a. initial distributionpat
         if t == 0:
             
-            D_ss = sim.D
+            D_ss = ss.D
             z_trans_ss_T_inv = np.linalg.inv(par.z_trans_ss.T)
             
             simulate_hh_D0(D_ss,z_trans_ss_T_inv,z_trans_T,D)
@@ -166,9 +166,9 @@ def simulate_hh_path(par,sol,sim):
         # b. all other periods
         else:
 
-            D_lag = sim.path_D[t-1]
-            path_i_lag = sol.path_i[t-1]
-            path_w_lag = sol.path_w[t-1]
+            D_lag = path.D[t-1]
+            path_i_lag = path.pol_indices[t-1]
+            path_w_lag = path.pol_weights[t-1]
 
             simulate_hh_forwards(D_lag,path_i_lag,path_w_lag,z_trans_T,D)
 
