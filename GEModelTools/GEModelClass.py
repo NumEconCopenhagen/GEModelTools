@@ -153,7 +153,7 @@ class GEModelClass:
             sim.pol_weights = np.zeros(sim_pol_shape)
 
         # e. allocate path and sim variables
-        path_shape = (np.max(len(self.unknowns),len(self.shocks))*par.T,par.T)
+        path_shape = (max(len(self.unknowns),len(self.shocks))*par.T,par.T)
         for varname in self.varlist:
             if ss_nan: ss.__dict__[varname] = np.nan
             path.__dict__[varname] = np.zeros(path_shape)
