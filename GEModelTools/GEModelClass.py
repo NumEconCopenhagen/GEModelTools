@@ -764,7 +764,7 @@ class GEModelClass:
                         jac[:,s] = (path.__dict__[outputname][thread,:]-path_ss.__dict__[outputname][0,:])/dx
 
         else:
-
+            
             for i in range(x_ss.size):   
                 
                 # i. inputs
@@ -781,7 +781,7 @@ class GEModelClass:
                 errors = self._get_errors() 
                                 
                 # iii. Jacobian
-                jac[:,i] = (errors.ravel()-base)/dx
+                jac_mat[:,i] = (errors.ravel()-base)/dx
         
         if do_print:
             if do_unknowns:
@@ -792,7 +792,7 @@ class GEModelClass:
         # reset
         self.path = path_original
  
-    def compute_jacs(self,dx=1e-6,skip_hh=False,skip_shocks=False,do_print=False):
+    def compute_jacs(self,dx=1e-6,skip_hh=False,skip_shocks=False,do_print=False,parallel=True):
         """ compute all Jacobians """
         
         if not skip_hh:
@@ -801,8 +801,8 @@ class GEModelClass:
             if do_print: print('')
 
         if do_print: print('full Jacobians:')
-        self._compute_jac(dx=dx,do_print=do_print)
-        if not skip_shocks: self._compute_jac(do_shocks=True,dx=dx,do_print=do_print)
+        self._compute_jac(dx=dx,parallel=parallel,do_print=do_print)
+        if not skip_shocks: self._compute_jac(do_shocks=True,dx=dx,parallel=parallel,do_print=do_print)
 
     ####################################
     # 5. find transition path and IRFs #
@@ -842,7 +842,9 @@ class GEModelClass:
                 rho = getattr(self.par,rhoname)
 
                 # ii. set value
-                patharray[:,:] = ssvalue +  scale*rho**np.arange(self.par.T)
+                patharray[:,:] = ssvalue 
+                Tshock = self.par.T//2
+                patharray[:,:Tshock] += scale*rho**np.arange(Tshock)
 
     def find_IRFs(self,shock_specs=None,reuse_G_U=False,do_print=False):
         """ find linearized impulse responses """
@@ -994,6 +996,7 @@ class GEModelClass:
             tol=par.tol_broyden,
             max_iter=par.max_iter_broyden,
             targets=self.targets,
+            unknowns=self.unknowns,
             do_print=do_print)
         
         # d. final evaluation

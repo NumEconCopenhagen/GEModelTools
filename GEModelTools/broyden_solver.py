@@ -2,7 +2,7 @@
 
 import numpy as np
 
-def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrack=30,do_print=False,targets=None):
+def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrack=30,do_print=False,targets=None,unknowns=None):
     """ numerical solver using the broyden method """
 
     # a. initial
@@ -31,7 +31,9 @@ def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrac
 
             try: # evaluate
                 ynew = f(x+dx)
+                if np.any(np.isnan(ynew)): raise ValueError
             except ValueError: # backtrack
+                if do_print: print(f'backtracking...')
                 dx *= backtrack_fac
             else: # update jac and break from backtracking
                 dy = ynew-y
