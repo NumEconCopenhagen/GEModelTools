@@ -243,7 +243,7 @@ class GEModelClass:
         self.create_grids()
 
         # b. solve backwards until convergence
-        with jit(self) as model:
+        with jit(self,show_exc=False) as model:
             
             par = model.par
             ss = model.ss
@@ -300,7 +300,7 @@ class GEModelClass:
                 raise NotImplementedError
     
         # b. simulate
-        with jit(self) as model:
+        with jit(self,show_exc=False) as model:
 
             par = model.par
             ss = model.ss
@@ -340,7 +340,7 @@ class GEModelClass:
         self.create_grids_path()
 
         # b. solve backwards
-        with jit(self) as model:
+        with jit(self,show_exc=False) as model:
 
             par = model.par
             ss = model.ss
@@ -377,7 +377,7 @@ class GEModelClass:
 
         if find_i_and_w: self._find_i_and_w_path()
 
-        with jit(self) as model:
+        with jit(self,show_exc=False) as model:
             simulate_hh_path(model.par,model.ss,model.path)
 
         if do_print: print(f'household problem simulated along transition in {elapsed(t0)}')
@@ -899,7 +899,7 @@ class GEModelClass:
         assert use_jac_hh or ncols == 1
         
         # a. before household block
-        with jit(self) as model:
+        with jit(self,show_exc=False) as model:
             self.block_pre(model.par,model.ss,model.path,ncols=ncols)
 
         # b. household block
@@ -948,7 +948,7 @@ class GEModelClass:
             pass # no household block
                 
         # c. after household block
-        with jit(self) as model:
+        with jit(self,show_exc=False) as model:
             self.block_post(model.par,model.ss,model.path,ncols=ncols)
 
     def _evaluate_H(self,x,do_print=False):
