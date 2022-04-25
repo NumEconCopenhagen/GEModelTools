@@ -234,13 +234,20 @@ class GEModelClass:
         else:
             raise NotImplementedError
 
-    def solve_hh_ss(self,do_print=False):
+    def solve_hh_ss(self,do_print=False,**kwargs):
         """ solve the household problem in steady state """
 
         t0 = time.time()
 
         # a. create grids
+        intertemps_hh = {}
+        for varname,value in kwargs.items():
+            intertemps_hh[varname] = value.copy()
+
         self.create_grids()
+
+        for varname,value in intertemps_hh.items():
+            self.ss.__dict__[varname][:] = value
 
         # b. solve backwards until convergence
         with jit(self,show_exc=False) as model:
@@ -277,7 +284,7 @@ class GEModelClass:
         # c. indices and weights    
         self._find_i_and_w()
 
-    def simulate_hh_ss(self,do_print=False,find_i_and_w=False):
+    def simulate_hh_ss(self,do_print=False,D=None,find_i_and_w=False):
         """ simulate the household problem in steady state """
         
         par = self.par
@@ -288,17 +295,22 @@ class GEModelClass:
         if find_i_and_w: self._find_i_and_w()
 
         # a. initial guess
-        ss.D[:] = 0.0
-        for i_fix in range(par.Nfix):
-            if len(self.grids_hh) == 1:
-                ss.D[i_fix,:,0] = par.z_ergodic_ss/par.Nfix
-            elif len(self.grids_hh) == 2:
-                ss.D[i_fix,:,0,0] = par.z_ergodic_ss/par.Nfix
-            elif len(self.grids_hh) == 3:
-                ss.D[i_fix,:,0,0,0] = par.z_ergodic_ss/par.Nfix
-            else:
-                raise NotImplementedError
-    
+        if D is None:
+
+            ss.D[:] = 0.0
+            for i_fix in range(par.Nfix):
+                if len(self.grids_hh) == 1:
+                    ss.D[i_fix,:,0] = par.z_ergodic_ss/par.Nfix
+                elif len(self.grids_hh) == 2:
+                    ss.D[i_fix,:,0,0] = par.z_ergodic_ss/par.Nfix
+                elif len(self.grids_hh) == 3:
+                    ss.D[i_fix,:,0,0,0] = par.z_ergodic_ss/par.Nfix
+                else:
+                    raise NotImplementedError
+        else:
+
+            ss.D[:] = D
+
         # b. simulate
         with jit(self,show_exc=False) as model:
 
@@ -646,10 +658,12 @@ class GEModelClass:
         if do_print or do_print_full: print(f'household Jacobian computed in {elapsed(t0_all)}')
         if do_print_full: print('')
         
-    def _compute_jac_hh(self,dx=1e-6,do_print=False,do_print_full=False,do_direct=False,s_list=None):
+    def _compute_jac_hh(self,dx=1e-6,skip_hh_inputs=None,do_print=False,do_print_full=False,do_direct=False,s_list=None):
         """ compute Jacobian of household problem """
 
         t0 = time.time()
+
+        if skip_hh_inputs is None: skip_hh_inputs = []
 
         path_original = deepcopy(self.path)
         if not do_direct: assert s_list is None, 'not implemented for fake news algorithm'
@@ -668,6 +682,7 @@ class GEModelClass:
         # b. run for each input        
         jac_hh = {}
         for inputname in self.inputs_hh:
+            if inputname in skip_hh_inputs: continue
             if do_direct:
                 self._calc_jac_hh_direct(jac_hh,inputname,dx=dx,
                     do_print=do_print,s_list=s_list)
@@ -678,14 +693,21 @@ class GEModelClass:
         # c. correction with ghost run
         for outputname in self.outputs_hh:
             for inputname in self.inputs_hh:
-                
-                # i. corrected value
+
                 key = (f'{outputname.upper()}_hh',inputname)
                 key_ghost = (f'{outputname.upper()}_hh','ghost')
-                value = jac_hh[key]-jac_hh_ghost[key_ghost]
+
+                if inputname in skip_hh_inputs: 
+                    
+                    self.jac_hh[key] = np.zeros((self.par.T,self.par.T))
+
+                else:    
                 
-                # ii. dictionary
-                self.jac_hh[key] = value
+                    # i. corrected value
+                    value = jac_hh[key]-jac_hh_ghost[key_ghost]
+                    
+                    # ii. dictionary
+                    self.jac_hh[key] = value
 
         if do_print: print(f'all Jacobians computed in {elapsed(t0)}')
 
@@ -792,12 +814,12 @@ class GEModelClass:
         # reset
         self.path = path_original
  
-    def compute_jacs(self,dx=1e-6,skip_hh=False,skip_shocks=False,do_print=False,parallel=True):
+    def compute_jacs(self,dx=1e-6,skip_hh=False,skip_hh_inputs=None,skip_shocks=False,do_print=False,parallel=True):
         """ compute all Jacobians """
         
         if not skip_hh:
             if do_print: print('household Jacobians:')
-            self._compute_jac_hh(dx=dx,do_print=do_print)
+            self._compute_jac_hh(skip_hh_inputs=skip_hh_inputs,dx=dx,do_print=do_print)
             if do_print: print('')
 
         if do_print: print('full Jacobians:')
