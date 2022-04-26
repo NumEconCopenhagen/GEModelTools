@@ -48,4 +48,4 @@ def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrac
 
     else:
 
-        raise ValueError(f'No convergence after {max_iter} iterations')    
+        raise ValueError(f'GEModelTools: No convergence after {max_iter} iterations with broyden_solver(tol={tol:.1e})')    
