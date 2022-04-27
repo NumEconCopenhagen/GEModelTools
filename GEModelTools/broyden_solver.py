@@ -44,7 +44,7 @@ def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrac
 
         else:
 
-            raise ValueError('Too many backtracks, maybe bad initial guess?')
+            raise ValueError(f'GEModelTools: Number of backtracks exceeds {max_backtrack}')
 
     else:
 
