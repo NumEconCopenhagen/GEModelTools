@@ -1310,8 +1310,8 @@ class GEModelClass:
         # f. test
         if do_end_check:
             for varname in self.varlist:
-                if varname in self.targets: continue
                 ssval = ss.__dict__[varname]
+                if np.isnan(ssval): continue
                 endpathval = path.__dict__[varname][0,-1]
                 if not np.isclose(ssval,endpathval):
                     print(f'{varname}: terminal value is {endpathval:12.8f}, but ss value is {ssval:12.8f}')
