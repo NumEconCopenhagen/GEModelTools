@@ -2,6 +2,7 @@
  
 import numpy as np
 import numba as nb
+
 from consav.linear_interp import binary_search
 
 @nb.njit(parallel=True) 
@@ -25,8 +26,9 @@ def find_i_and_w_1d_1d(pol1,grid1,i,w):
                 # c. weight
                 w[i_fix,i_z,i_endo] = (grid1[i_+1] - pol1_) / (grid1[i_+1] - grid1[i_])
 
-                # d. bound simulation at upper grid point
+                # d. avoid extrapolation
                 w[i_fix,i_z,i_endo] = np.fmin(w[i_fix,i_z,i_endo],1.0)
+                w[i_fix,i_z,i_endo] = np.fmax(w[i_fix,i_z,i_endo],0.0)
 
 @nb.njit
 def find_i_and_w_1d_1d_path(T,path_pol1,grid1,path_i,path_w):
@@ -41,19 +43,8 @@ def find_i_and_w_1d_1d_path(T,path_pol1,grid1,path_i,path_w):
     return k
 
 @nb.njit(parallel=True)   
-def simulate_hh_D0(D_ss,z_trans_ss_T_inv,z_trans_T,D):
-    """ find initial distribution given initial transition matrix """
-
-    Nfix = D_ss.shape[0]
-    for i_fix in nb.prange(Nfix):
-        D[i_fix] = z_trans_T@(z_trans_ss_T_inv@D_ss[i_fix])
-
-@nb.njit(parallel=True)   
-def simulate_hh_forwards(D,i,w,z_trans_T,D_plus):
-    """ simulate given indices and weights """
-
-    # a. assuming z is constant 
-    # (same as multiplication with P transposed)
+def simulate_hh_forwards_endo(D,i,w,Dbeg_plus):
+    """ simulate endougenous deterministic transition given indices and weights """
     
     Nfix = D.shape[0]
     Nz = D.shape[1]
@@ -66,7 +57,7 @@ def simulate_hh_forwards(D,i,w,z_trans_T,D_plus):
         for i_fix in nb.prange(Nfix):
             for i_z in nb.prange(Nz):
             
-                D_plus[i_fix,i_z,:] = 0
+                Dbeg_plus[i_fix,i_z,:] = 0.0
                 for i_endo in range(Nendo1):
                     
                     # i. from
@@ -75,35 +66,38 @@ def simulate_hh_forwards(D,i,w,z_trans_T,D_plus):
                     # ii. to
                     i_ = i[i_fix,i_z,i_endo]            
                     w_ = w[i_fix,i_z,i_endo]
-                    D_plus[i_fix,i_z,i_] += D_*w_
-                    D_plus[i_fix,i_z,i_+1] += D_*(1.0-w_)
-    
+                    Dbeg_plus[i_fix,i_z,i_] += D_*w_
+                    Dbeg_plus[i_fix,i_z,i_+1] += D_*(1.0-w_)
     
     else:
 
         raise ValueError('too many dimensions')
 
-    # b. account for transition of z
-    # (same as multiplication with tilde Pi transposed)
+@nb.njit(parallel=True)   
+def simulate_hh_forwards_exo(Dbeg,z_trans_T,D):
+    """ exogenous stochastic transition given transition matrix """
+    
+    Nfix = Dbeg.shape[0]
+
     for i_fix in nb.prange(Nfix):
-        D_plus[i_fix] = z_trans_T@D_plus[i_fix].copy()
+        D[i_fix] = z_trans_T[i_fix]@Dbeg[i_fix]
 
 @nb.njit(parallel=True)   
-def simulate_hh_forwards_transpose(D,i,w,z_trans,D_plus):
+def simulate_hh_forwards_exo_transpose(Dbeg,z_trans,D):
     """ simulate given indices and weights """
 
-    Nfix = D.shape[0]
-    Nz = D.shape[1]
-    Ndim = D.ndim-2
+    Nfix = Dbeg.shape[0]
 
-    # a. account for transition z
-    # (same as multiplication with tilde Pi)
-    D_temp = np.zeros(D.shape)
     for i_fix in nb.prange(Nfix):
-        D_temp[i_fix] = z_trans@D[i_fix].copy()
+        D[i_fix] = z_trans[i_fix]@Dbeg[i_fix]
     
-    # b. assuming z is constant
-    # (same as multiplication with P)    
+@nb.njit(parallel=True)   
+def simulate_hh_forwards_endo_transpose(Dbeg_plus,i,w,D):
+    """ simulate given indices and weights """
+
+    Nfix = Dbeg_plus.shape[0]
+    Nz = Dbeg_plus.shape[1]
+    Ndim = Dbeg_plus.ndim-2    
 
     if Ndim == 1:
         
@@ -114,7 +108,7 @@ def simulate_hh_forwards_transpose(D,i,w,z_trans,D_plus):
                 for i_endo in nb.prange(Nendo1):
                     i_ = i[i_fix,i_z,i_endo]
                     w_ = w[i_fix,i_z,i_endo]
-                    D_plus[i_fix,i_z,i_endo] = w_*D_temp[i_fix,i_z,i_] + (1.0-w_)*D_temp[i_fix,i_z,i_+1]
+                    D[i_fix,i_z,i_endo] = w_*Dbeg_plus[i_fix,i_z,i_] + (1.0-w_)*Dbeg_plus[i_fix,i_z,i_+1]
 
     else:
 
@@ -124,22 +118,25 @@ def simulate_hh_forwards_transpose(D,i,w,z_trans,D_plus):
 def simulate_hh_ss(par,ss):
     """ simulate forwards to steady state """
 
-    # a. prepare
-    z_trans = par.z_trans_ss
-    z_trans_T = z_trans.T.copy()    
-    D_lag = np.zeros(ss.D.shape)
-
-    # b. iterate
     it = 0
+    z_trans_T = np.transpose(ss.z_trans,axes=(0,2,1)).copy()
+
     while True:
         
-        # i. update distribution
-        D_lag = ss.D.copy()
-        simulate_hh_forwards(D_lag,ss.pol_indices,ss.pol_weights,z_trans_T,ss.D)
+        old_D = ss.D.copy()
+
+        # i. exogenous update
+        simulate_hh_forwards_exo(ss.Dbeg,z_trans_T,ss.D)
 
         # ii. check convergence
-        if np.max(np.abs(ss.D-D_lag)) < par.tol_simulate: 
+        if np.max(np.abs(ss.D-old_D)) < par.tol_simulate: 
             return it
+
+        # important for fake news algorithm: 
+        # Dbeg and D is related by an exogenous forward update 
+
+        # iii. endogenous update
+        simulate_hh_forwards_endo(ss.D,ss.pol_indices,ss.pol_weights,ss.Dbeg)
 
         # iii. increment
         it += 1
@@ -147,28 +144,42 @@ def simulate_hh_ss(par,ss):
             raise ValueError('simulate_hh_ss(), too many iterations')
 
 @nb.njit
-def simulate_hh_path(par,ss,path):
-    """ simulate along path """
+def simulate_hh_path(par,path):
+    """ simulate along transition path """
 
     for t in range(par.T):
 
+        Dbeg = path.Dbeg[t]
         D = path.D[t]
-        z_trans_T = par.z_trans_path[t].T
+        z_trans_T = np.transpose(path.z_trans[t],axes=(0,2,1)).copy()
 
-        # a. initial distributionpat
+        # a. exogenous update
+        simulate_hh_forwards_exo(Dbeg,z_trans_T,D)
+
+        # b. endogenous update
+        if t < par.T-1:
+
+            Dbeg_plus = path.Dbeg[t+1]
+            i = path.pol_indices[t]
+            w = path.pol_weights[t]
+
+            simulate_hh_forwards_endo(D,i,w,Dbeg_plus)
+
+@nb.njit
+def simulate_hh_z_path(par,path,Dz_ini):
+    """ find steady state for exogenous distribution """
+
+    for t in range(par.T):
+
+        # a. lagged
         if t == 0:
-            
-            D_ss = ss.D
-            z_trans_ss_T_inv = np.linalg.inv(par.z_trans_ss.T)
-            
-            simulate_hh_D0(D_ss,z_trans_ss_T_inv,z_trans_T,D)
+            Dz_lag = Dz_ini
+        else:                
+            Dz_lag = path.Dz[t-1]
 
-        # b. all other periods
-        else:
+        # b. current
+        Dz = path.Dz[t]
+        z_trans_T = np.transpose(path.z_trans[t],axes=(0,2,1)).copy()
 
-            D_lag = path.D[t-1]
-            path_i_lag = path.pol_indices[t-1]
-            path_w_lag = path.pol_weights[t-1]
-
-            simulate_hh_forwards(D_lag,path_i_lag,path_w_lag,z_trans_T,D)
-
+        # c. update
+        simulate_hh_forwards_exo(Dz_lag,z_trans_T,Dz)

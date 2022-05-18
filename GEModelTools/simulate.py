@@ -3,7 +3,6 @@ from functools import cache
 import numpy as np
 import numba as nb
 
-
 @nb.njit(parallel=True)
 def update_IRF_hh(IRF_pols,dpols,IRF):
 

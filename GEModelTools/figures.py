@@ -23,7 +23,7 @@ def show_IRFs(models,labels,varnames,
     model = models[0]
     
     par = model.par
-    if T_max is None: T_max = par.transition_T
+    if T_max is None: T_max = par.T
     
     # full_list
     full_list = []

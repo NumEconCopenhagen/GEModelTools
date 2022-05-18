@@ -2,7 +2,7 @@
 
 import numpy as np
 
-def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrack=30,do_print=False,targets=None,unknowns=None):
+def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrack=30,do_print=False,do_print_unknowns=False,model=None):
     """ numerical solver using the broyden method """
 
     # a. initial
@@ -15,24 +15,34 @@ def broyden_solver(f,x0,jac,tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrac
         # i. current difference
         abs_diff = np.max(np.abs(y))
         if do_print: 
+            
             print(f' it = {it:3d} -> max. abs. error = {abs_diff:8.1e}')
-            if not targets is None and len(targets) > 1:
-                y_ = y.reshape((len(targets),-1))
-                for i,target in enumerate(targets):
+
+            if not model is None and do_print_unknowns:
+                for unknown in model.unknowns:
+                    minval = np.min(model.path.__dict__[unknown][0,:])
+                    meanval = np.mean(model.path.__dict__[unknown][0,:])
+                    maxval = np.max(model.path.__dict__[unknown][0,:])
+                    print(f'   {unknown:15s}: {minval = :7.2f} {meanval = :7.2f} {maxval = :7.2f}')            
+     
+            if not model is None and len(model.targets) > 1:
+                y_ = y.reshape((len(model.targets),-1))
+                for i,target in enumerate(model.targets):
                     print(f'   {np.max(np.abs(y_[i])):8.1e} in {target}')
 
         if abs_diff < tol: return x
         
         # ii. new x
         dx = np.linalg.solve(jac,-y)
-                
+
         # iii. evalute with backtrack
         for _ in range(max_backtrack):
 
             try: # evaluate
                 ynew = f(x+dx)
-                if np.any(np.isnan(ynew)): raise ValueError
-            except Exception: # backtrack
+                if np.any(np.isnan(ynew)): raise ValueError('found nan value')
+            except Exception as e: # backtrack
+                #print(e)
                 if do_print: print(f'backtracking...')
                 dx *= backtrack_fac
             else: # update jac and break from backtracking
