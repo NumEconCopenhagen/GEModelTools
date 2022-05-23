@@ -1053,7 +1053,7 @@ class GEModelClass:
     def compute_jacs(self,dx=1e-4,skip_hh=False,inputs_hh_all=None,skip_shocks=False,do_print=False,parallel=True,do_direct=False):
         """ compute all Jacobians """
         
-        if not skip_hh:
+        if not skip_hh and len(self.outputs_hh) > 0:
             if do_print: print('household Jacobians:')
             self._compute_jac_hh(inputs_hh_all=inputs_hh_all,dx=dx,do_direct=do_direct,do_print=do_print)
             if do_print: print('')

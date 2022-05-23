@@ -115,55 +115,57 @@ def jac(model,s_list,dx=1e-4):
 
     par = model.par
 
-    print('note: differences should only be due to numerical errors\n')
+    if len(model.outputs_hh) > 0:
 
-    # a. direct
-    print('direct method:')
-    model._compute_jac_hh(dx=dx,do_print=True,do_direct=True,s_list=s_list)
-    jac_hh_direct = deepcopy(model.jac_hh)
+        print('note: differences should only be due to numerical errors\n')
 
-    # b. fake news
-    print(f'\nfake news method:')
-    model._compute_jac_hh(dx=dx,do_print=True,do_direct=False)
+        # a. direct
+        print('direct method:')
+        model._compute_jac_hh(dx=dx,do_print=True,do_direct=True,s_list=s_list)
+        jac_hh_direct = deepcopy(model.jac_hh)
 
-    # c. compare
-    fig = plt.figure(figsize=(6*2,len(model.outputs_hh)*len(model.inputs_hh_all)*4),dpi=100)
+        # b. fake news
+        print(f'\nfake news method:')
+        model._compute_jac_hh(dx=dx,do_print=True,do_direct=False)
 
-    i = 0
-    for inputname in model.inputs_hh_all:
-        for outputname in model.outputs_hh:
-        
-            jac_hh_var_direct = jac_hh_direct[(f'{outputname.upper()}_hh',inputname)]
-            jac_hh_var = model.jac_hh[(f'{outputname.upper()}_hh',inputname)]
-            
-            ax = fig.add_subplot(len(model.inputs_hh_all)*len(model.outputs_hh),2,i*2+1)
-            ax_diff = fig.add_subplot(len(model.inputs_hh_all)*len(model.outputs_hh),2,i*2+2)
+        # c. compare
+        fig = plt.figure(figsize=(6*2,len(model.outputs_hh)*len(model.inputs_hh_all)*4),dpi=100)
 
-            ax.set_title(f'{outputname.upper()} to {inputname}')
-            ax_diff.set_title(f'... difference')
-
-            for j,s in enumerate(s_list):
-                
-                ax.plot(np.arange(par.T),jac_hh_var_direct[:,s],color=colors[j],label=f'shock at {s}')
-                ax.plot(np.arange(par.T),jac_hh_var[:,s],color=colors[j],ls='--',label='fake news')
-                
-                diff = jac_hh_var[:,s]-jac_hh_var_direct[:,s]
-                ax_diff.plot(np.arange(par.T),diff,color=colors[j])
-
-            if i == 0: ax.legend(frameon=True)
-            i += 1            
-
-    # d. condition numbers
-    print('')
-    for outputname in model.outputs_hh:
-        Outputname_hh = f'{outputname.upper()}_hh'
-        print(f'{Outputname_hh}:')
+        i = 0
         for inputname in model.inputs_hh_all:
-            cond = np.linalg.cond(model.jac_hh[(Outputname_hh,inputname)])
-            mean = np.mean(model.jac_hh[(Outputname_hh,inputname)])            
-            if ~np.all(np.isclose(model.jac_hh[(Outputname_hh,inputname)],0.0)):
-                print(f' {inputname:15s}: {cond = :.1e} [{mean = :8.1e}]')
+            for outputname in model.outputs_hh:
+            
+                jac_hh_var_direct = jac_hh_direct[(f'{outputname.upper()}_hh',inputname)]
+                jac_hh_var = model.jac_hh[(f'{outputname.upper()}_hh',inputname)]
+                
+                ax = fig.add_subplot(len(model.inputs_hh_all)*len(model.outputs_hh),2,i*2+1)
+                ax_diff = fig.add_subplot(len(model.inputs_hh_all)*len(model.outputs_hh),2,i*2+2)
+
+                ax.set_title(f'{outputname.upper()} to {inputname}')
+                ax_diff.set_title(f'... difference')
+
+                for j,s in enumerate(s_list):
+                    
+                    ax.plot(np.arange(par.T),jac_hh_var_direct[:,s],color=colors[j],label=f'shock at {s}')
+                    ax.plot(np.arange(par.T),jac_hh_var[:,s],color=colors[j],ls='--',label='fake news')
+                    
+                    diff = jac_hh_var[:,s]-jac_hh_var_direct[:,s]
+                    ax_diff.plot(np.arange(par.T),diff,color=colors[j])
+
+                if i == 0: ax.legend(frameon=True)
+                i += 1            
+
+        # d. condition numbers
         print('')
+        for outputname in model.outputs_hh:
+            Outputname_hh = f'{outputname.upper()}_hh'
+            print(f'{Outputname_hh}:')
+            for inputname in model.inputs_hh_all:
+                cond = np.linalg.cond(model.jac_hh[(Outputname_hh,inputname)])
+                mean = np.mean(model.jac_hh[(Outputname_hh,inputname)])            
+                if ~np.all(np.isclose(model.jac_hh[(Outputname_hh,inputname)],0.0)):
+                    print(f' {inputname:15s}: {cond = :.1e} [{mean = :8.1e}]')
+            print('')
 
     # e. condition numbers - full Jacobian
     model._compute_jac(dx=dx,do_print=True)

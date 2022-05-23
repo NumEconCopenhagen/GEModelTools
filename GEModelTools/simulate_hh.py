@@ -129,7 +129,7 @@ def simulate_hh_ss(par,ss):
         simulate_hh_forwards_exo(ss.Dbeg,z_trans_T,ss.D)
 
         # ii. check convergence
-        if np.max(np.abs(ss.D-old_D)) < par.tol_simulate: 
+        if it > 1 and np.max(np.abs(ss.D-old_D)) < par.tol_simulate: 
             return it
 
         # important for fake news algorithm: 
