@@ -949,10 +949,26 @@ class GEModelClass:
             # reset
             self.path = path_original
 
-    def _compute_jac(self,do_shocks=False,dx=1e-4,do_print=False,parallel=True):
+    def _compute_jac(self,inputs=None,dx=1e-4,do_print=False,parallel=True):
         """ compute full Jacobian """
         
-        do_unknowns = not do_shocks
+        if type(inputs) is str:
+
+            assert inputs in ['shocks','unknowns'], 'unknown string value of inputs'
+
+            do_unknowns = inputs == 'unknowns'
+            do_shocks = inputs == 'shocks'
+
+        else:
+
+            assert type(inputs) is list, 'inputs must be string or list'
+            for el in list:
+                assert type(el) is str, f'all elements in inputs must be string, {el} is {type(el)}'
+
+            do_unknowns = False
+            do_shocks = False
+
+            if not parallel: raise NotImplementedError('must have parallel=True')
 
         t0 = time.time()
         evaluate_t = 0.0
@@ -962,7 +978,7 @@ class GEModelClass:
 
         if do_unknowns:
             inputs = self.unknowns
-        else:
+        elif do_shocks:
             inputs = self.shocks
 
         par = self.par
@@ -983,8 +999,10 @@ class GEModelClass:
         # c. calculate
         if do_unknowns:
             jac_mat = self.H_U
-        else:
+        elif do_shocks:
             jac_mat = self.H_Z
+        else:
+            jac_dict = {}
         
         x_ss = np.zeros((len(inputs),par.T))
         for i,varname in enumerate(inputs):
@@ -1007,15 +1025,19 @@ class GEModelClass:
             errors = self._get_errors(inputs,parallel=True)
 
             # iii. Jacobian
-            jac_mat[:,:] = (errors.reshape(jac_mat.shape)-base[:,np.newaxis])/dx
+            if do_unknowns or do_shocks:
+                jac_mat[:,:] = (errors.reshape(jac_mat.shape)-base[:,np.newaxis])/dx
 
             # iv. all other variables
             for i_input,inputname in enumerate(inputs):
                 for outputname in self.varlist:
                     
                     key = (outputname,inputname)
-                    jac = self.jac[key]
-
+                    if do_unknowns or do_shocks:
+                        jac = self.jac[key]
+                    else:
+                        jac = jac_dict[key] = np.zeros((par.T,par.T))
+                        
                     for s in range(par.T):
 
                         thread = i_input*par.T+s
@@ -1049,7 +1071,10 @@ class GEModelClass:
 
         # reset
         self.path = path_original
- 
+
+        if not (do_unknowns or do_shocks):
+            return jac_dict
+            
     def compute_jacs(self,dx=1e-4,skip_hh=False,inputs_hh_all=None,skip_shocks=False,do_print=False,parallel=True,do_direct=False):
         """ compute all Jacobians """
         
@@ -1059,8 +1084,8 @@ class GEModelClass:
             if do_print: print('')
 
         if do_print: print('full Jacobians:')
-        self._compute_jac(dx=dx,parallel=parallel,do_print=do_print)
-        if not skip_shocks: self._compute_jac(do_shocks=True,dx=dx,parallel=parallel,do_print=do_print)
+        self._compute_jac(inputs='unknowns',dx=dx,parallel=parallel,do_print=do_print)
+        if not skip_shocks: self._compute_jac(inputs='shocks',dx=dx,parallel=parallel,do_print=do_print)
 
     ####################################
     # 5. find transition path and IRFs #
@@ -1541,4 +1566,4 @@ class GEModelClass:
     test_hh_z_path = tests.hh_z_path
     test_hh_path = tests.hh_path
     test_path = tests.path
-    test_jac = tests.jac
+    test_jacs = tests.jacs

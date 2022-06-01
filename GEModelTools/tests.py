@@ -110,10 +110,12 @@ def path(model):
 
         print(f'{varname:15s}: t0 = {pathvalue[0]:8.1e}, max abs. {max_abs:8.1e}')        
 
-def jac(model,s_list,dx=1e-4):
+def jacs(model,s_list=None,dx=1e-4):
     """ test the computation of hh Jacobians with direct and fake news method, and the overall Jacobian"""
 
     par = model.par
+    if s_list is None:
+        s_list = list(np.arange(0,model.par.T,model.par.T//4))
 
     if len(model.outputs_hh) > 0:
 
@@ -168,8 +170,8 @@ def jac(model,s_list,dx=1e-4):
             print('')
 
     # e. condition numbers - full Jacobian
-    model._compute_jac(dx=dx,do_print=True)
-    model._compute_jac(dx=dx,do_shocks=True,do_print=True)
+    model._compute_jac(inputs='unknowns',dx=dx,do_print=True)
+    model._compute_jac(inputs='shocks',dx=dx,do_print=True)
     print('')
 
     for targetname in model.targets:
@@ -180,3 +182,13 @@ def jac(model,s_list,dx=1e-4):
             if ~np.all(np.isclose(model.jac[(targetname,inputname)],0.0)):
                 print(f' {inputname:15s}: {cond = :.1e} [{mean = :8.1e}]')            
         print('')
+
+    for jacname in ['H_U','H_Z']:
+        
+        jac = getattr(model,jacname)
+        cond = np.linalg.cond(jac)
+        mean = np.mean(jac)
+        if ~np.all(np.isclose(jac,0.0)):
+            print(f'{jacname:15s}: {cond = :.1e} [{mean = :8.1e}]')            
+
+    print('')

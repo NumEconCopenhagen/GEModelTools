@@ -1,5 +1,4 @@
 
-from functools import cache
 import numpy as np
 import numba as nb
 
@@ -42,7 +41,7 @@ def simulate_agg(epsilons,IRF_mat,sim_mat):
                     if t-s >= 0:
                         sim_mat[i_var,t] += IRF_mat[i_var,i_shock,s]*epsilons[i_shock,t-s]
 
-@nb.njit(parallel=True,cache=False)
+@nb.njit(parallel=True)
 def simulate_agg_hh(epsilons,IRF_pols_mat,sim_pols_mat):
 
     Npols = IRF_pols_mat.shape[0]
