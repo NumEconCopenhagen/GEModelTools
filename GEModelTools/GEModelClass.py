@@ -1516,48 +1516,58 @@ class GEModelClass:
             if do_print: print(f'household policies simulated in {elapsed(t0)}')
 
             # ii. distribution
-            t0 = time.time()
+            self.simulate_distribution(do_print=do_print)
 
-            # o. initialize
-            sim.Dbeg[0] = ss.Dbeg
+    def simulate_distribution(self,do_print=False):
+        """ simulate distribution """
+
+        par = self.par
+        ss = self.ss
+        sim = self.sim
+
+        t0 = time.time()
+
+        # a. initialize
+        sim.Dbeg[0] = ss.Dbeg
+        
+        # b. transition matrix
+        if len(self.inputs_hh_z) > 0:
+            raise NotImplementedError
+        else:
+            z_trans_T = np.transpose(ss.z_trans,axes=(0,2,1)).copy()
+
+        # c. simulate
+        if len(self.grids_hh) == 1:
+
+            grid1 = getattr(par,f'{self.grids_hh[0]}_grid')
+
+            for t in range(par.simT):
             
-            # oo. transition matrix
-            if len(self.inputs_hh_z) > 0:
-                raise NotImplementedError
-            else:
-                z_trans_T = np.transpose(ss.z_trans,axes=(0,2,1)).copy()
-
-            # ooo. simulate
-            if len(self.grids_hh) == 1:
-
-                grid1 = getattr(par,f'{self.grids_hh[0]}_grid')
-
-                for t in range(par.simT):
+                simulate_hh_forwards_exo(sim.Dbeg[t],z_trans_T,sim.D[t])    
                 
-                    simulate_hh_forwards_exo(sim.Dbeg[t],z_trans_T,sim.D[t])    
-                    
-                    if t < par.simT-1:
-                        sim_i = sim.pol_indices[t]
-                        sim_w = sim.pol_weights[t]
-                        find_i_and_w_1d_1d(sim_pols_mat[0,t],grid1,sim_i,sim_w)
-                        simulate_hh_forwards_endo(sim.D[t],sim_i,sim_w,sim.Dbeg[t+1])
-                    
-            else:
-
-                raise NotImplementedError
-
-            if do_print: print(f'distribution simulated in {elapsed(t0)}')     
-
-            # iii. aggregate
-            t0 = time.time()
-
-            for polname in self.pols_hh:
-
-                Outputname_hh = f'{polname.upper()}_hh_from_D'
-                pol = sim.__dict__[polname]
-                self.sim.__dict__[Outputname_hh] = np.sum(pol*sim.D,axis=tuple(range(1,pol.ndim)))
+                if t < par.simT-1:
+                    sim_i = sim.pol_indices[t]
+                    sim_w = sim.pol_weights[t]
+                    sim_pol = sim.__dict__[self.pols_hh[0]]
+                    find_i_and_w_1d_1d(sim_pol[t],grid1,sim_i,sim_w)
+                    simulate_hh_forwards_endo(sim.D[t],sim_i,sim_w,sim.Dbeg[t+1])
                 
-            if do_print: print(f'aggregates calculated from distribution in {elapsed(t0)}')       
+        else:
+
+            raise NotImplementedError
+
+        if do_print: print(f'distribution simulated in {elapsed(t0)}')     
+
+        # d. aggregate
+        t0 = time.time()
+
+        for polname in self.pols_hh:
+
+            Outputname_hh = f'{polname.upper()}_hh_from_D'
+            pol = sim.__dict__[polname]
+            self.sim.__dict__[Outputname_hh] = np.sum(pol*sim.D,axis=tuple(range(1,pol.ndim)))
+            
+        if do_print: print(f'aggregates calculated from distribution in {elapsed(t0)}')       
         
     ############
     # 8. tests #

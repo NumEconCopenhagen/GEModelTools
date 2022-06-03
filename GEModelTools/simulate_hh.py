@@ -183,3 +183,10 @@ def simulate_hh_z_path(par,path,Dz_ini):
 
         # c. update
         simulate_hh_forwards_exo(Dz_lag,z_trans_T,Dz)
+
+@nb.njit
+def simulate_hh_forwards(D,i,w,z_trans_T,D_plus):
+
+    Dbeg_plus = np.zeros(D.shape)
+    simulate_hh_forwards_endo(D,i,w,Dbeg_plus)
+    simulate_hh_forwards_exo(Dbeg_plus,z_trans_T,D_plus)
