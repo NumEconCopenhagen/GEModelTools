@@ -1406,6 +1406,9 @@ class GEModelClass:
         ss = self.ss
         path = self.path
 
+        path_original = self.path
+        path = self.path = deepcopy(self.path)
+
         t0 = time.time()
 
         # a. solution matrix
@@ -1461,6 +1464,9 @@ class GEModelClass:
                 print(f']') 
             else:
                 print(f', households: {elapsed(t0_hh,t1_hh)}]')
+
+        # reset
+        self.path = path_original
 
     def simulate(self,do_prepare=True,skip_hh=False,reuse_G_U=False,do_print=False):
         """ simulate the model """
