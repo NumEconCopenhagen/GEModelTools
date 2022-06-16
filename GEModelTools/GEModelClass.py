@@ -85,7 +85,8 @@ class GEModelClass:
 
         for varname in self.outputs_hh: 
             Varname_hh = f'{varname.upper()}_hh'
-            assert Varname_hh in self.varlist, f'{Varname_hh} is not in .varlist, but {varname} is in .outputs_hh'
+            if not Varname_hh in self.varlist:
+                self.varlist.append(Varname_hh)
             
         for varname in self.shocks + self.unknowns + self.targets:
             assert varname in self.varlist, f'{varname} not in .varlist'
@@ -169,6 +170,8 @@ class GEModelClass:
                 sim.__dict__[polname] = np.zeros(sim_pol_shape)
                 sim.__dict__[f'{polname.upper()}_hh_from_D'] = np.zeros(par.simT)
 
+            sim.z_trans = np.zeros((par.simT,par.Nfix,par.Nz,par.Nz))
+            sim.Dz = np.zeros((par.simT,par.Nfix,par.Nz))
             sim.D = np.zeros(sim_pol_shape)
             sim.Dbeg = np.zeros(sim_pol_shape)
             sim.pol_indices = np.zeros(sim_pol_shape,dtype=np.int_)
@@ -258,7 +261,7 @@ class GEModelClass:
         self._find_i_and_w_dict(self.ss.__dict__)
 
     def _get_stepvars_hh_z_ss(self):
-        """ get variables for backwards step in steady state """
+        """ get variables for transition matrix in steady state """
 
         par = self.par
         ss = self.ss
@@ -366,14 +369,19 @@ class GEModelClass:
         assert np.isclose(Dbeg_sum,1.0), f'sum(ss.Dbeg) = {Dbeg_sum:12.8f}, should be 1.0'
         
         # b. simulate
-        with jit(self,show_exc=False) as model:
+        with jit(self,show_exc=False) as model:            
+            it = simulate_hh_ss(model.par,model.ss)
 
-            par = model.par
-            ss = model.ss
-            
-            it = simulate_hh_ss(par,ss)
+        # c. aggregate
+        for outputname in self.outputs_hh:
 
-        # c. Dz
+            pol = ss.__dict__[outputname]
+            ssvalue = np.sum(pol*ss.D)
+
+            Outputname_hh = f'{outputname.upper()}_hh'
+            ss.__dict__[Outputname_hh] = ssvalue
+
+        # d. Dz
         ss.Dz[:,:] = np.sum(ss.Dbeg,axis=tuple(range(2,ss.Dbeg.ndim)))
 
         if do_print: print(f'household problem in ss simulated in {elapsed(t0)} [{it} iterations]')
@@ -401,7 +409,7 @@ class GEModelClass:
             raise NotImplemented
 
     def _get_stepvars_hh_z_path(self,t):
-        """ get variables for backwards step in along transition path"""
+        """ get variables for transition matrix along transition path"""
 
         par = self.par
         path = self.path
@@ -466,26 +474,37 @@ class GEModelClass:
     def simulate_hh_path(self,do_print=False,find_i_and_w=False,Dbeg=None):
         """ simulate the household problem along the transition path"""
         
+        path = self.path
+
         t0 = time.time() 
 
         if find_i_and_w: self._find_i_and_w_path()
 
         # a. initial distribution
         if Dbeg is None:
-            self.path.Dbeg[0] = self.ss.Dbeg
+            path.Dbeg[0] = self.ss.Dbeg
         else:
-            self.path.Dbeg[0] = Dbeg
+            path.Dbeg[0] = Dbeg
 
         # check
-        Dbeg_sum = np.sum(self.path.Dbeg[0])
+        Dbeg_sum = np.sum(path.Dbeg[0])
         assert np.isclose(Dbeg_sum,1.0), f'sum(path.Dbeg[0]) = {Dbeg_sum:12.8f}, should be 1.0'
 
         # b. simulate
         with jit(self,show_exc=False) as model:
             simulate_hh_path(model.par,model.path)
 
-        # c. Dz
-        self.path.Dz[:,:,:] = np.sum(self.path.Dbeg,axis=tuple(range(3,self.path.Dbeg.ndim)))
+        # c. aggregate
+        for outputname in self.outputs_hh:
+
+            Outputname_hh = f'{outputname.upper()}_hh'
+            pathvalue = path.__dict__[Outputname_hh]
+
+            pol = path.__dict__[outputname]
+            pathvalue[0,:] = np.sum(pol*path.D,axis=tuple(range(1,pol.ndim)))
+            
+        # d. Dz
+        path.Dz[:,:,:] = np.sum(path.Dbeg,axis=tuple(range(3,path.Dbeg.ndim)))
 
         if do_print: print(f'household problem simulated along transition in {elapsed(t0)}')
 
@@ -1256,15 +1275,6 @@ class GEModelClass:
             # ii. simulate
             self.simulate_hh_path(Dbeg=self.ini.Dbeg)
 
-            # iii. aggregate
-            for outputname in self.outputs_hh:
-
-                Outputname_hh = f'{outputname.upper()}_hh'
-                pathvalue = path.__dict__[Outputname_hh]
-
-                pol = path.__dict__[outputname]
-                pathvalue[0,:] = np.sum(pol*path.D,axis=tuple(range(1,pol.ndim)))
-
         else:
 
             pass # no household block
@@ -1399,6 +1409,18 @@ class GEModelClass:
     # 7. simulate #
     ###############
 
+    def _get_stepvars_hh_z_sim(self,t):
+        """ get variables for transition matrix in simulation """
+
+        par = self.par
+        sim = self.sim
+        ss = self.ss
+
+        stepvars_hh_z = {'par':par,'z_trans':sim.z_trans[t]}
+        for varname in self.inputs_hh_z: stepvars_hh_z[varname] = getattr(ss,varname) + getattr(sim,f'd{varname}')[t]
+
+        return stepvars_hh_z
+
     def prepare_simulate(self,skip_hh=False,reuse_G_U=False,do_print=True):
         """ prepare model for simulation by calculating IRFs """
 
@@ -1420,13 +1442,14 @@ class GEModelClass:
         self._set_shocks(std_shock=True)
 
         # c. IRFs
-        for i_input,shockname in enumerate(self.shocks):
+        for i_shock,shockname in enumerate(self.shocks):
+            
             
             # i. shocks
             dZ = np.zeros((len(self.shocks),par.T))        
-            dZ[i_input,:] = path.__dict__[shockname][0,:]-ss.__dict__[shockname]
+            dZ[i_shock,:] = path.__dict__[shockname][0,:]-ss.__dict__[shockname]
 
-            self.IRF[(shockname,shockname)][:] = dZ[i_input,:] 
+            self.IRF[(shockname,shockname)][:] = dZ[i_shock,:] 
 
             # ii. unknowns
             dU = self.G_U@dZ.ravel()
@@ -1484,7 +1507,11 @@ class GEModelClass:
         IRF_mat = np.zeros((len(self.varlist),len(self.shocks),par.T))
         for i,varname in enumerate(self.varlist):
             for j,shockname in enumerate(self.shocks):
-                IRF_mat[i,j,:] = self.IRF[(varname,shockname)]
+                IRF = self.IRF[(varname,shockname)]
+                if np.any(np.isnan(IRF)):
+                    IRF_mat[i,j,:] = 0.0
+                else:
+                    IRF_mat[i,j,:] = IRF
 
         # b. draw shocks
         epsilons = np.random.normal(size=(len(self.shocks),par.simT))
@@ -1492,7 +1519,7 @@ class GEModelClass:
         # c. simulate
         sim_mat = np.zeros((len(self.varlist),par.simT))
         simulate_agg(epsilons,IRF_mat,sim_mat)
-
+        
         for i,varname in enumerate(self.varlist):
             sim.__dict__[f'd{varname}'][:] = sim_mat[i]
 
@@ -1536,19 +1563,21 @@ class GEModelClass:
         # a. initialize
         sim.Dbeg[0] = ss.Dbeg
         
-        # b. transition matrix
-        if len(self.inputs_hh_z) > 0:
-            raise NotImplementedError
-        else:
-            z_trans_T = np.transpose(ss.z_trans,axes=(0,2,1)).copy()
-
-        # c. simulate
+        # b. simulate
         if len(self.grids_hh) == 1:
 
             grid1 = getattr(par,f'{self.grids_hh[0]}_grid')
 
             for t in range(par.simT):
-            
+
+                if len(self.inputs_hh_z) > 0:
+                    with jit(self) as _:
+                        stepvars_hh_z = self._get_stepvars_hh_z_sim(t)
+                        self.fill_z_trans(**stepvars_hh_z)
+                else:
+                    sim.z_trans[t,:] = ss.z_trans
+
+                z_trans_T = np.transpose(sim.z_trans[t],axes=(0,2,1)).copy()
                 simulate_hh_forwards_exo(sim.Dbeg[t],z_trans_T,sim.D[t])    
                 
                 if t < par.simT-1:
@@ -1564,6 +1593,9 @@ class GEModelClass:
 
         if do_print: print(f'distribution simulated in {elapsed(t0)}')     
 
+        # c. Dz
+        sim.Dz[:,:,:] = np.sum(sim.Dbeg,axis=tuple(range(3,sim.Dbeg.ndim)))
+
         # d. aggregate
         t0 = time.time()
 
@@ -1571,7 +1603,7 @@ class GEModelClass:
 
             Outputname_hh = f'{polname.upper()}_hh_from_D'
             pol = sim.__dict__[polname]
-            self.sim.__dict__[Outputname_hh] = np.sum(pol*sim.D,axis=tuple(range(1,pol.ndim)))
+            sim.__dict__[Outputname_hh] = np.sum(pol*sim.D,axis=tuple(range(1,pol.ndim)))
             
         if do_print: print(f'aggregates calculated from distribution in {elapsed(t0)}')       
         
