@@ -120,8 +120,8 @@ def show_IRFs(models,labels,varnames,
             
             if (len(labels) > 1 or do_linear) and i == 0: ax.legend(frameon=True)
             
-        plt.show()
         fig.tight_layout(pad=3.0)
+        plt.show()
         print('')
 
         # save
