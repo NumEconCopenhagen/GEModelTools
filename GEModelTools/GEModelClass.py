@@ -785,7 +785,7 @@ class GEModelClass:
                 # backwards iteration
                 dintertemps = {}
 
-                for polname in self.pols_hh:
+                for polname in self.outputs_hh:
                     self.dpols[(polname,inputname)] = np.zeros(getattr(path,polname).shape)
 
                 for s in range(par.T):
@@ -822,7 +822,7 @@ class GEModelClass:
                     for varname in self.intertemps_hh:
                         dintertemps[varname] = stepvars_hh[varname]-one_step_ss[varname]
 
-                    for polname in self.pols_hh:
+                    for polname in self.outputs_hh:
                         self.dpols[(polname,inputname)][s] = (stepvars_hh[polname]-one_step_ss[polname])/dx
 
                     if do_z_trans:
@@ -1421,12 +1421,14 @@ class GEModelClass:
 
         return stepvars_hh_z
 
-    def prepare_simulate(self,skip_hh=False,reuse_G_U=False,do_print=True):
+    def prepare_simulate(self,skip_hh=False,only_pols_hh=True,reuse_G_U=False,do_print=True):
         """ prepare model for simulation by calculating IRFs """
 
         par = self.par
         ss = self.ss
         path = self.path
+
+        varlist_hh = self.pols_hh if only_pols_hh else self.outputs_hh
 
         path_original = self.path
         path = self.path = deepcopy(self.path)
@@ -1443,7 +1445,6 @@ class GEModelClass:
 
         # c. IRFs
         for i_shock,shockname in enumerate(self.shocks):
-            
             
             # i. shocks
             dZ = np.zeros((len(self.shocks),par.T))        
@@ -1474,7 +1475,7 @@ class GEModelClass:
 
             self.IRF['pols'] = {}
             for shockname in self.shocks:  
-                for polname in self.pols_hh:
+                for polname in varlist_hh:
                     IRF_pols = self.IRF['pols'][(polname,shockname)] = np.zeros((*ss.pol_indices.shape,par.T))
                     for inputname in self.inputs_hh_all:    
                         update_IRF_hh(IRF_pols,self.dpols[(polname,inputname)],self.IRF[(inputname,shockname)])
@@ -1491,15 +1492,17 @@ class GEModelClass:
         # reset
         self.path = path_original
 
-    def simulate(self,do_prepare=True,skip_hh=False,reuse_G_U=False,do_print=False):
+    def simulate(self,do_prepare=True,skip_hh=False,only_pols_hh=True,reuse_G_U=False,do_print=False):
         """ simulate the model """
 
         par = self.par
         ss = self.ss
         sim = self.sim
-        
+
+        varlist_hh = self.pols_hh if only_pols_hh else self.outputs_hh
+
         # a. prepare simulation
-        if do_prepare: self.prepare_simulate(skip_hh=skip_hh,reuse_G_U=reuse_G_U,do_print=do_print)
+        if do_prepare: self.prepare_simulate(skip_hh=skip_hh,only_pols_hh=only_pols_hh,reuse_G_U=reuse_G_U,do_print=do_print)
 
         t0 = time.time()
 
@@ -1531,18 +1534,18 @@ class GEModelClass:
             t0 = time.time()
 
             # i. policies
-            IRF_pols_mat = np.zeros((len(self.pols_hh),len(self.shocks),*ss.pol_indices.shape,par.T))
-            for i,polname in enumerate(self.pols_hh):
+            IRF_pols_mat = np.zeros((len(varlist_hh),len(self.shocks),*ss.pol_indices.shape,par.T))
+            for i,polname in enumerate(varlist_hh):
                 for j,shockname in enumerate(self.shocks):
                     IRF_pols_mat[i,j] = self.IRF['pols'][(polname,shockname)]
 
-            sim_pols_mat = np.zeros((len(self.pols_hh),par.simT,*ss.pol_indices.shape))
+            sim_pols_mat = np.zeros((len(varlist_hh),par.simT,*ss.pol_indices.shape))
             
             t0_ = time.time()
             simulate_agg_hh(epsilons,IRF_pols_mat,sim_pols_mat)
             t1_ = time.time()
 
-            for i,polname in enumerate(self.pols_hh):
+            for i,polname in enumerate(varlist_hh):
                 sim_pols_mat[i] += ss.__dict__[polname]
                 sim.__dict__[polname] = sim_pols_mat[i]
 
@@ -1551,12 +1554,14 @@ class GEModelClass:
             # ii. distribution
             self.simulate_distribution(do_print=do_print)
 
-    def simulate_distribution(self,do_print=False):
+    def simulate_distribution(self,only_pols_hh=True,do_print=False):
         """ simulate distribution """
 
         par = self.par
         ss = self.ss
         sim = self.sim
+
+        varlist_hh = self.pols_hh if only_pols_hh else self.outputs_hh
 
         t0 = time.time()
 
@@ -1599,7 +1604,7 @@ class GEModelClass:
         # d. aggregate
         t0 = time.time()
 
-        for polname in self.pols_hh:
+        for polname in varlist_hh:
 
             Outputname_hh = f'{polname.upper()}_hh_from_D'
             pol = sim.__dict__[polname]
