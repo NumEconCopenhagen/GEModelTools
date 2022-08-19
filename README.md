@@ -21,14 +21,14 @@ The conceptual framework is taken from the seminal paper by Adrien Auclert, Benc
 
 The main contributors are:
 
-Jeppe Druedahl
-Emil Holst Partsch
-Nicolai Waldstrøm
+- Jeppe Druedahl
+- Emil Holst Partsch
+- Nicolai Waldstrøm
 
-Useful feedback has been provided by especially by
+Useful feedback has been provided especially by
 
-Jacob Sundram
-Søren Hove Ravn
-Max Ørnes
-Niels Hvingelby
-Philip Frost Madsen
+- Jacob Sundram
+- Søren Hove Ravn
+- Max Ørnes
+- Niels Hvingelby
+- Philip Frost Madsen
