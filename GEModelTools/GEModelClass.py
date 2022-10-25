@@ -298,6 +298,24 @@ class GEModelClass:
 
         return stepvars_hh
 
+    def set_hh_initial_guess(self):
+
+        # check
+        for i_fix in range(self.par.Nfix):
+            for i_z in range(self.par.Nz):
+                rowsum = np.sum(self.ss.z_trans[i_fix,i_z,:])
+                check = np.isclose(rowsum,1.0)
+                assert check, f'sum(ss.z_trans[{i_fix},{i_z},:] = {rowsum:12.8f}, should be 1.0'
+
+        # single evaluation
+        with jit(self,show_exc=False) as model:
+            
+            par = model.par
+            ss = model.ss
+
+            stepvars_hh = self._get_stepvars_hh_ss()
+            self.solve_hh_backwards(**stepvars_hh,ss=True)
+
     def solve_hh_ss(self,do_print=False,initial_guess=None):
         """ solve the household problem in steady state """
 
@@ -537,7 +555,7 @@ class GEModelClass:
                     else:
                         path.z_trans[t,:] = ss.z_trans
 
-            simulate_hh_z_path(model.par,model.path,Dz_ini)
+            simulate_hh_z_path(model.par,path.z_trans,path.Dz,Dz_ini)
 
         if do_print: print(f'household z z simulated along transition in {elapsed(t0)}')
 
@@ -1620,3 +1638,4 @@ class GEModelClass:
     test_hh_path = tests.hh_path
     test_path = tests.path
     test_jacs = tests.jacs
+    test_evaluate_speed = tests.evaluate_speed

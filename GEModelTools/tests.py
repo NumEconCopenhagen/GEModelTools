@@ -1,3 +1,4 @@
+import time
 import numpy as np
 
 import matplotlib.pyplot as plt
@@ -7,6 +8,8 @@ colors = prop_cycle.by_key()['color']
 plt.rcParams.update({'font.size':12})
 
 from copy import deepcopy
+
+from consav.misc import elapsed
 
 def hh_z_path(model):
     """ test exogenous part of household simulation along path """
@@ -49,7 +52,6 @@ def hh_path(model):
     model.solve_hh_path(do_print=True)
     model.simulate_hh_path(do_print=True)
 
-    
     # b. show mean of each hh output
     print('')
     fig = plt.figure(figsize=(6,len(model.outputs_hh)*4))
@@ -192,3 +194,20 @@ def jacs(model,s_list=None,dx=1e-4):
             print(f'{jacname:15s}: {cond = :.1e} [{mean = :8.1e}]')            
 
     print('')
+
+def evaluate_speed(model):
+    """ test household solution and simulation along path """
+
+    model._set_inputs_hh_all_ss()
+
+    t0 = time.time()
+    model.solve_hh_path(do_print=True)
+    print(f'.solve_hh_path: {elapsed(t0)}')
+
+    t0 = time.time()
+    model.simulate_hh_path(do_print=True)    
+    print(f'.simulate_hh_path: {elapsed(t0)}')
+
+    t0 = time.time()
+    model.simulate_hh_path(do_print=True)    
+    print(f'.evaluate_path(): {elapsed(t0)}')

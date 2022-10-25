@@ -166,7 +166,7 @@ def simulate_hh_path(par,path):
             simulate_hh_forwards_endo(D,i,w,Dbeg_plus)
 
 @nb.njit
-def simulate_hh_z_path(par,path,Dz_ini):
+def simulate_hh_z_path(par,z_trans,Dz,Dz_ini):
     """ find steady state for exogenous distribution """
 
     for t in range(par.T):
@@ -175,14 +175,14 @@ def simulate_hh_z_path(par,path,Dz_ini):
         if t == 0:
             Dz_lag = Dz_ini
         else:                
-            Dz_lag = path.Dz[t-1]
+            Dz_lag = Dz[t-1]
 
-        # b. current
-        Dz = path.Dz[t]
-        z_trans_T = np.transpose(path.z_trans[t],axes=(0,2,1)).copy()
+        # b. transpose
+        z_trans_T = np.transpose(z_trans[t],axes=(0,2,1)).copy()
 
         # c. update
-        simulate_hh_forwards_exo(Dz_lag,z_trans_T,Dz)
+        for i_fix in range(par.Nfix):
+            Dz[t,i_fix] = z_trans_T[i_fix]@Dz_lag[i_fix]
 
 @nb.njit
 def simulate_hh_forwards(D,i,w,z_trans_T,D_plus):
