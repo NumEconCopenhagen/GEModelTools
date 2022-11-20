@@ -568,7 +568,7 @@ class GEModelClass:
             patharray = getattr(self.path,inputname)
             patharray[:,:] = ssvalue
 
-    def decompose_hh_path(self,do_print=False,Dbeg=None,use_inputs=None):
+    def decompose_hh_path(self,do_print=False,Dbeg=None,use_inputs=None,custom_paths=None):
         """ decompose household transition path wrt. inputs or initial distribution """
 
         ss = self.ss
@@ -579,6 +579,8 @@ class GEModelClass:
             use_inputs_list = self.inputs_hh_all
         else:
             use_inputs_list = use_inputs
+
+        if custom_paths is None: custom_paths = {}
 
         # a. save original path and create clean path
         path_original = self.path
@@ -592,7 +594,11 @@ class GEModelClass:
         for varname in self.inputs_hh_all:
             if varname in use_inputs_list: continue
             path.__dict__[varname][0,:] = ss.__dict__[varname]
-                
+        
+        for varname in use_inputs_list:
+            if varname in custom_paths:
+                path.__dict__[varname][0,:] = custom_paths[varname]
+
         # c. solve and simulate
         if not use_inputs == 'all':
             self.solve_hh_path(do_print=do_print)
