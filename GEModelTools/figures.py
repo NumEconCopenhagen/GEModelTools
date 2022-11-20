@@ -64,27 +64,7 @@ def show_IRFs(models,labels,varnames,
                     ssvalue = model_.ss.__dict__[varname]
                     IRFvalue = IRFvalue + ssvalue
 
-                    if varname in abs_diff:
-                        
-                        if np.isclose(ssvalue,1.0):
-                            ssvalue = facs[varname]*ssvalue**pows[varname]
-                            pathvalue = facs[varname]*pathvalue**pows[varname]
-                            IRFvalue = facs[varname]*IRFvalue**pows[varname]  
-                        else:
-                            ssvalue = facs[varname]*((1+ssvalue)**pows[varname]-1)
-                            pathvalue = facs[varname]*((1+pathvalue)**pows[varname]-1)
-                            IRFvalue = facs[varname]*((1+IRFvalue)**pows[varname]-1)
-                   
-                        ax.plot(np.arange(T_max),pathvalue[:T_max]-ssvalue,label=label)
-                        if do_linear:
-                            ax.plot(np.arange(T_max),IRFvalue[:T_max]-ssvalue,ls='--',label='linear')
-
-                        if varname in facs:
-                            ax.set_ylabel(fr'{facs[varname]:.0f} x abs. diff. to of s.s.')
-                        else:
-                            ax.set_ylabel('abs. diff. to of s.s.')
-
-                    elif varname in lvl_value:
+                    if varname in lvl_value or varname in model.targets:
                         
                         if np.isclose(ssvalue,1.0):
                             ssvalue = facs[varname]*ssvalue**pows[varname]
@@ -103,6 +83,26 @@ def show_IRFs(models,labels,varnames,
                             ax.set_ylabel(fr'{facs[varname]:.0f} x level')
                         else:
                             ax.set_ylabel('')
+
+                    elif varname in abs_diff:
+                        
+                        if np.isclose(ssvalue,1.0):
+                            ssvalue = facs[varname]*ssvalue**pows[varname]
+                            pathvalue = facs[varname]*pathvalue**pows[varname]
+                            IRFvalue = facs[varname]*IRFvalue**pows[varname]  
+                        else:
+                            ssvalue = facs[varname]*((1+ssvalue)**pows[varname]-1)
+                            pathvalue = facs[varname]*((1+pathvalue)**pows[varname]-1)
+                            IRFvalue = facs[varname]*((1+IRFvalue)**pows[varname]-1)
+                   
+                        ax.plot(np.arange(T_max),pathvalue[:T_max]-ssvalue,label=label)
+                        if do_linear:
+                            ax.plot(np.arange(T_max),IRFvalue[:T_max]-ssvalue,ls='--',label='linear')
+
+                        if varname in facs:
+                            ax.set_ylabel(fr'{facs[varname]:.0f} x abs. diff. to of s.s.')
+                        else:
+                            ax.set_ylabel('abs. diff. to of s.s.')
 
                     else:
 
