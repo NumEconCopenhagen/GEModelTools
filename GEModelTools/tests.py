@@ -2,10 +2,7 @@ import time
 import numpy as np
 
 import matplotlib.pyplot as plt
-plt.style.use('seaborn-whitegrid')
-prop_cycle = plt.rcParams['axes.prop_cycle']
-colors = prop_cycle.by_key()['color']
-plt.rcParams.update({'font.size':12})
+colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 from copy import deepcopy
 
