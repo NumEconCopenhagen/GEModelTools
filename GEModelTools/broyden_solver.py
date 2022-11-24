@@ -3,7 +3,7 @@
 import numpy as np
 
 def broyden_solver(f,x0,jac,
-    tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrack=30,
+    tol=1e-8,max_iter=100,backtrack_fac=0.5,max_backtrack=30,max_no_improvement=5,
     do_print=False,do_print_unknowns=False,model=None,
     fixed_jac=False):
     """ numerical solver using the broyden method """
@@ -13,10 +13,20 @@ def broyden_solver(f,x0,jac,
     y = f(x)
 
     # b. iterate
+    abs_diff_min = np.inf
     for it in range(max_iter):
         
         # i. current difference
         abs_diff = np.max(np.abs(y))
+        if abs_diff < abs_diff_min:
+            no_improvement = 0
+            abs_diff_min = abs_diff
+        else:
+            no_improvement += 1
+            if no_improvement > max_no_improvement:
+                raise ValueError(f'GEModelTools: No improvement for {max_no_improvement} iterations')
+
+
         if do_print: 
             
             print(f' it = {it:3d} -> max. abs. error = {abs_diff:8.2e}')

@@ -121,10 +121,6 @@ class GEModelClass:
         par.__dict__.setdefault('tol_simulate',1e-12)
         par.__dict__.setdefault('tol_broyden',1e-10)
 
-        for varname in self.shocks:
-            par.__dict__.setdefault(f'jump_{varname}',0.0)
-            par.__dict__.setdefault(f'rho_{varname}',0.0)
-
         # c. allocate grids and transition matrices
         if update_hh:
 
@@ -517,11 +513,13 @@ class GEModelClass:
     def simulate_hh_path(self,do_print=False,find_i_and_w=False,Dbeg=None):
         """ simulate the household problem along the transition path"""
         
+        par = self.par
+        ss = self.ss
         path = self.path
 
         t0 = time.time() 
 
-        if find_i_and_w: self._find_i_and_w_path()
+        if find_i_and_w: self._find_i_and_w_path()         
 
         # a. initial distribution
         if Dbeg is None:
@@ -535,6 +533,15 @@ class GEModelClass:
 
         # b. simulate
         with jit(self,show_exc=False) as model:
+
+            if find_i_and_w: 
+                for t in range(par.T):
+                    if len(self.inputs_hh_z) > 0:
+                        stepvars_hh_z = self._get_stepvars_hh_z_path(t)
+                        self.fill_z_trans(**stepvars_hh_z)
+                    else:
+                        path.z_trans[t,:] = ss.z_trans  
+
             simulate_hh_path(model.par,model.path)
 
         # c. aggregate
@@ -593,7 +600,7 @@ class GEModelClass:
             patharray = getattr(self.path,inputname)
             patharray[:,:] = ssvalue
 
-    def decompose_hh_path(self,do_print=False,Dbeg=None,use_inputs=None):
+    def decompose_hh_path(self,do_print=False,Dbeg=None,use_inputs=None,custom_paths=None):
         """ decompose household transition path wrt. inputs or initial distribution """
 
         ss = self.ss
@@ -604,6 +611,8 @@ class GEModelClass:
             use_inputs_list = self.inputs_hh_all
         else:
             use_inputs_list = use_inputs
+
+        if custom_paths is None: custom_paths = {}
 
         # a. save original path and create clean path
         path_original = self.path
@@ -617,7 +626,11 @@ class GEModelClass:
         for varname in self.inputs_hh_all:
             if varname in use_inputs_list: continue
             path.__dict__[varname][0,:] = ss.__dict__[varname]
-                
+        
+        for varname in use_inputs_list:
+            if varname in custom_paths:
+                path.__dict__[varname][0,:] = custom_paths[varname]
+
         # c. solve and simulate
         if not use_inputs == 'all':
             self.solve_hh_path(do_print=do_print)
@@ -1165,6 +1178,7 @@ class GEModelClass:
             
             # a. custom path
             if (dshockname := f'd{shockname}') in shock_specs:
+
                 patharray[:,:] = ssvalue + shock_specs[dshockname]
 
             # b. AR(1) path
@@ -1174,14 +1188,24 @@ class GEModelClass:
                 if std_shock:
                     
                     stdname = f'std_{shockname}'
-                    scale = getattr(self.par,stdname)
+
+                    if hasattr(self.par,stdname):
+                        scale = getattr(self.par,stdname)
+                    else:
+                        patharray[:,:] = ssvalue         
+                        continue                    
 
                     assert not scale < 0, f'{stdname} must not be negative'
 
                 else:
 
                     jumpname = f'jump_{shockname}'
-                    scale = getattr(self.par,jumpname)
+
+                    if hasattr(self.par,jumpname):
+                        scale = getattr(self.par,jumpname)
+                    else:
+                        patharray[:,:] = ssvalue         
+                        continue
                 
                 rhoname = f'rho_{shockname}'
                 rho = getattr(self.par,rhoname)
