@@ -8,7 +8,7 @@ from EconModel import jit
 from consav.misc import elapsed
 
 from . import tests
-from .simulate_hh import find_i_and_w_1d_1d, find_i_and_w_1d_1d_path
+from .simulate_hh import find_i_and_w_1d_1d, find_i_and_w_1d_1d_path, find_i_and_w_2d_1d, find_i_and_w_2d_1d_path
 from .simulate_hh import simulate_hh_forwards_endo, simulate_hh_forwards_exo
 from .simulate_hh import simulate_hh_forwards_endo_transpose, simulate_hh_forwards_exo_transpose
 from .simulate_hh import simulate_hh_ss, simulate_hh_path, simulate_hh_z_path
@@ -138,6 +138,7 @@ class GEModelClass:
             par.z_grid = np.zeros(par.Nz)
 
         # d. allocate household variables
+        Npol = len(self.pols_hh)
         path_pol_shape = (par.T,*sol_shape)
         sim_pol_shape = (par.simT,*sol_shape)
 
@@ -155,15 +156,15 @@ class GEModelClass:
             ss.Dz = np.zeros((par.Nfix,par.Nz,))
             ss.D = np.zeros(sol_shape)
             ss.Dbeg = np.zeros(sol_shape)
-            ss.pol_indices = np.zeros(sol_shape,dtype=np.int_)
-            ss.pol_weights = np.zeros(sol_shape)
+            ss.pol_indices = np.zeros((Npol,*sol_shape),dtype=np.int_)
+            ss.pol_weights = np.zeros((Npol,*sol_shape))
 
             path.z_trans = np.zeros((par.T,par.Nfix,par.Nz,par.Nz))
             path.Dz = np.zeros((par.T,par.Nfix,par.Nz))
             path.D = np.zeros(path_pol_shape)
             path.Dbeg = np.zeros(path_pol_shape)
-            path.pol_indices = np.zeros(path_pol_shape,dtype=np.int_)
-            path.pol_weights = np.zeros(path_pol_shape)
+            path.pol_indices = np.zeros((par.T,Npol,*sol_shape),dtype=np.int_)
+            path.pol_weights = np.zeros((par.T,Npol,*sol_shape))
 
             # ii. sim
             for polname in self.pols_hh:
@@ -174,8 +175,8 @@ class GEModelClass:
             sim.Dz = np.zeros((par.simT,par.Nfix,par.Nz))
             sim.D = np.zeros(sim_pol_shape)
             sim.Dbeg = np.zeros(sim_pol_shape)
-            sim.pol_indices = np.zeros(sim_pol_shape,dtype=np.int_)
-            sim.pol_weights = np.zeros(sim_pol_shape)
+            sim.pol_indices = np.zeros((par.simT,Npol,*sol_shape),dtype=np.int_)
+            sim.pol_weights = np.zeros((par.simT,Npol,*sol_shape))
 
         # e. allocate path and sim variables
         path_shape = (max(len(self.unknowns),len(self.shocks))*par.T,par.T)
@@ -249,10 +250,22 @@ class GEModelClass:
         par = self.par
 
         if len(self.grids_hh) == 1:
+
             pol1 = ss_dict[f'{self.grids_hh[0]}']
             grid1 = getattr(par,f'{self.grids_hh[0]}_grid')
-            find_i_and_w_1d_1d(pol1,grid1,ss_dict['pol_indices'],ss_dict['pol_weights'])
+            find_i_and_w_1d_1d(pol1,grid1,ss_dict['pol_indices'][0],ss_dict['pol_weights'][0])
+
+        elif len(self.grids_hh) == 2 and len(self.pols_hh) == 2:
+
+            pol1 = ss_dict[f'{self.grids_hh[0]}']
+            pol2 = ss_dict[f'{self.grids_hh[1]}']
+            grid1 = getattr(par, f'{self.grids_hh[0]}_grid')
+            grid2 = getattr(par, f'{self.grids_hh[1]}_grid')
+            find_i_and_w_2d_1d(pol1,grid1,grid1,grid2,ss_dict['pol_indices'][0],ss_dict['pol_weights'][0])
+            find_i_and_w_2d_1d(pol2,grid2,grid1,grid2,ss_dict['pol_indices'][1],ss_dict['pol_weights'][1])
+        
         else:
+
             raise NotImplementedError
 
     def _find_i_and_w_ss(self):
@@ -420,10 +433,22 @@ class GEModelClass:
         path = self.path
 
         if len(self.grids_hh) == 1:
+
             path_pol1 = getattr(path,f'{self.grids_hh[0]}')
             grid1 = getattr(par,f'{self.grids_hh[0]}_grid') 
-            find_i_and_w_1d_1d_path(par.T,path_pol1,grid1,path.pol_indices,path.pol_weights)
+            find_i_and_w_1d_1d_path(par.T,path_pol1,grid1,path.pol_indices[:,0],path.pol_weights[:,0])
+
+        elif len(self.grids_hh) == 2 and len(self.pols_hh) == 2:
+
+            path_pol1 = getattr(path,f'{self.grids_hh[0]}')
+            path_pol2 = getattr(path,f'{self.grids_hh[1]}')
+            grid1 = getattr(par, f'{self.grids_hh[0]}_grid')
+            grid2 = getattr(par, f'{self.grids_hh[1]}_grid')
+            find_i_and_w_2d_1d_path(par.T,path_pol1,grid1,grid1,grid2,path.pol_indices[:,0],path.pol_weights[:,0])
+            find_i_and_w_2d_1d_path(par.T,path_pol2,grid2,grid1,grid2,path.pol_indices[:,1],path.pol_weights[:,1])   
+
         else:
+
             raise NotImplemented
 
     def _get_stepvars_hh_z_path(self,t):
@@ -895,13 +920,13 @@ class GEModelClass:
             
             curly_E[outputname] = np.zeros((par.T-1,*sol_ss.shape))
             temp = demean(sol_ss)
-            simulate_hh_forwards_exo_transpose(temp,ss.z_trans,curly_E[outputname][0])
+            curly_E[outputname][0] = simulate_hh_forwards_exo_transpose(temp,ss.z_trans)
 
         for t in range(1,par.T-1):
             
             for outputname in self.outputs_hh:
-                simulate_hh_forwards_endo_transpose(curly_E[outputname][t-1],ss.pol_indices,ss.pol_weights,temp)
-                simulate_hh_forwards_exo_transpose(temp,ss.z_trans,curly_E[outputname][t])
+                temp = simulate_hh_forwards_endo_transpose(curly_E[outputname][t-1],ss.pol_indices,ss.pol_weights)
+                curly_E[outputname][t] = simulate_hh_forwards_exo_transpose(temp,ss.z_trans)
                 curly_E[outputname][t] = demean(curly_E[outputname][t])
             
         if do_print: print(f'curly_E calculated in {elapsed(t0)}')
@@ -1494,7 +1519,7 @@ class GEModelClass:
             self.IRF['pols'] = {}
             for shockname in self.shocks:  
                 for polname in varlist_hh:
-                    IRF_pols = self.IRF['pols'][(polname,shockname)] = np.zeros((*ss.pol_indices.shape,par.T))
+                    IRF_pols = self.IRF['pols'][(polname,shockname)] = np.zeros((*ss.D.shape,par.T))
                     for inputname in self.inputs_hh_all:    
                         update_IRF_hh(IRF_pols,self.dpols[(polname,inputname)],self.IRF[(inputname,shockname)])
                         
@@ -1552,12 +1577,12 @@ class GEModelClass:
             t0 = time.time()
 
             # i. policies
-            IRF_pols_mat = np.zeros((len(varlist_hh),len(self.shocks),*ss.pol_indices.shape,par.T))
+            IRF_pols_mat = np.zeros((len(varlist_hh),len(self.shocks),*ss.D.shape,par.T))
             for i,polname in enumerate(varlist_hh):
                 for j,shockname in enumerate(self.shocks):
                     IRF_pols_mat[i,j] = self.IRF['pols'][(polname,shockname)]
 
-            sim_pols_mat = np.zeros((len(varlist_hh),par.simT,*ss.pol_indices.shape))
+            sim_pols_mat = np.zeros((len(varlist_hh),par.simT,*ss.D.shape))
             
             t0_ = time.time()
             simulate_agg_hh(epsilons,IRF_pols_mat,sim_pols_mat)
@@ -1604,10 +1629,11 @@ class GEModelClass:
                 simulate_hh_forwards_exo(sim.Dbeg[t],z_trans_T,sim.D[t])    
                 
                 if t < par.simT-1:
+
                     sim_i = sim.pol_indices[t]
                     sim_w = sim.pol_weights[t]
                     sim_pol = sim.__dict__[self.pols_hh[0]]
-                    find_i_and_w_1d_1d(sim_pol[t],grid1,sim_i,sim_w)
+                    find_i_and_w_1d_1d(sim_pol[t],grid1,sim_i[0],sim_w[0])
                     simulate_hh_forwards_endo(sim.D[t],sim_i,sim_w,sim.Dbeg[t+1])
                 
         else:
