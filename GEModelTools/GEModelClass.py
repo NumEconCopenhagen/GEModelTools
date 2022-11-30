@@ -485,7 +485,7 @@ class GEModelClass:
 
         if do_print: print(f'household problem solved along transition path in {elapsed(t0)}')
 
-    def simulate_hh_path(self,do_print=False,find_i_and_w=False,Dbeg=None):
+    def simulate_hh_path(self,do_print=False,find_i_and_w=False,find_z_trans=False,Dbeg=None):
         """ simulate the household problem along the transition path"""
         
         par = self.par
@@ -509,7 +509,7 @@ class GEModelClass:
         # b. simulate
         with jit(self,show_exc=False) as model:
 
-            if find_i_and_w: 
+            if find_i_and_w or find_z_trans: 
                 for t in range(par.T):
                     if len(self.inputs_hh_z) > 0:
                         stepvars_hh_z = self._get_stepvars_hh_z_path(t)
@@ -575,7 +575,7 @@ class GEModelClass:
             patharray = getattr(self.path,inputname)
             patharray[:,:] = ssvalue
 
-    def decompose_hh_path(self,do_print=False,Dbeg=None,use_inputs=None,custom_paths=None):
+    def decompose_hh_path(self,do_print=False,Dbeg=None,use_inputs=None,custom_paths=None,fix_z_trans=False):
         """ decompose household transition path wrt. inputs or initial distribution """
 
         ss = self.ss
@@ -607,9 +607,13 @@ class GEModelClass:
                 path.__dict__[varname][0,:] = custom_paths[varname]
 
         # c. solve and simulate
-        if not use_inputs == 'all':
-            self.solve_hh_path(do_print=do_print)
-        self.simulate_hh_path(do_print=do_print,Dbeg=Dbeg)
+        if not use_inputs == 'all': self.solve_hh_path(do_print=do_print)
+        
+        if fix_z_trans:
+            for varname in self.inputs_hh_z:
+                path.__dict__[varname][0,:] = ss.__dict__[varname]
+
+        self.simulate_hh_path(do_print=do_print,Dbeg=Dbeg,find_z_trans=fix_z_trans)
 
         # d. aggregates
         for outputname in self.outputs_hh:
