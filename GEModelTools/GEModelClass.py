@@ -25,6 +25,8 @@ class GEModelClass:
     def allocate_GE(self,update_hh=True,ss_nan=True):
         """ allocate GE variables """
 
+        self.set_functions()
+            
         # a1. input checks
         ns_attrs = ['par','ini','ss','path','sim']
         for ns in ns_attrs:
@@ -214,6 +216,11 @@ class GEModelClass:
             for shockname in self.shocks:
                 self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
 
+    def set_functions(self):
+        """ set functions """
+
+        pass # this ensures backwards compatibility to setting them in .settings()
+
     def prepare_hh_ss(self):
         """ prepare the household block to solve for steady state """
 
@@ -309,6 +316,8 @@ class GEModelClass:
 
     def set_hh_initial_guess(self):
 
+        self.set_functions()
+
         # check
         for i_fix in range(self.par.Nfix):
             for i_z in range(self.par.Nz):
@@ -327,6 +336,8 @@ class GEModelClass:
 
     def solve_hh_ss(self,do_print=False,initial_guess=None):
         """ solve the household problem in steady state """
+
+        self.set_functions()
 
         t0 = time.time()
 
@@ -380,6 +391,8 @@ class GEModelClass:
     def simulate_hh_ss(self,do_print=False,Dbeg=None,find_i_and_w=False):
         """ simulate the household problem in steady state """
         
+        self.set_functions()
+
         par = self.par
         ss = self.ss
 
@@ -482,6 +495,8 @@ class GEModelClass:
     def solve_hh_path(self,do_print=False):
         """ solve the household problem along the transition path """
 
+        self.set_functions()
+
         t0 = time.time()
 
         with jit(self,show_exc=False) as model:
@@ -513,6 +528,8 @@ class GEModelClass:
     def simulate_hh_path(self,do_print=False,find_i_and_w=False,find_z_trans=False,Dbeg=None):
         """ simulate the household problem along the transition path"""
         
+        self.set_functions()
+
         par = self.par
         ss = self.ss
         path = self.path
@@ -791,6 +808,8 @@ class GEModelClass:
 
     def _calc_jac_hh_fakenews(self,inputs_hh_all=None,dx=1e-4,do_print=False):
         """ compute Jacobian of household problem with fake news algorithm """
+
+        self.set_functions()
 
         if inputs_hh_all is None: inputs_hh_all = self.inputs_hh_all
 
@@ -1301,6 +1320,8 @@ class GEModelClass:
 
     def evaluate_path(self,ini='ss',ncols=1,use_jac_hh=False):
         """ evaluate transition path """
+
+        self.set_functions()
 
         par = self.par
         ss = self.ss

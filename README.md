@@ -24,6 +24,7 @@ The main contributors are:
 - Jeppe Druedahl
 - Emil Holst Partsch
 - Nicolai Waldstrøm
+- Yannik Winkelmann
 
 Useful feedback has been provided especially by
 
