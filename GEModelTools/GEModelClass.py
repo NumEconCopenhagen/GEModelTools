@@ -2,6 +2,8 @@
 
 import time
 from copy import deepcopy
+from types import SimpleNamespace
+
 import numpy as np
 
 from EconModel import jit
@@ -1190,23 +1192,18 @@ class GEModelClass:
     ####################################
 
     def _set_shocks(self,shock_specs=None,std_shock=False):
-        """ set shocks based on shock specification, default is AR(1) """
+        """ set shocks as AR(1) or from detailed specification """
         
-        if shock_specs is None: shock_specs = {}
+        Tshock = self.par.T//2
 
-        for shockname in self.shocks:
+        # a. AR(1)s
+        if shock_specs is None: 
 
-            patharray = getattr(self.path,shockname)
-            ssvalue = getattr(self.ss,shockname)
+            for shockname in self.shocks:
             
-            # a. custom path
-            if (dshockname := f'd{shockname}') in shock_specs:
-
-                patharray[:,:] = ssvalue + shock_specs[dshockname]
-
-            # b. AR(1) path
-            else:
-
+                patharray = getattr(self.path,shockname)
+                ssvalue = getattr(self.ss,shockname)
+            
                 # i. jump and rho
                 if std_shock:
                     
@@ -1235,8 +1232,32 @@ class GEModelClass:
 
                 # ii. set value
                 patharray[:,:] = ssvalue 
-                Tshock = self.par.T//2
                 patharray[:,:Tshock] += scale*rho**np.arange(Tshock)
+
+        # b. shock specificaiton
+        else:
+
+            # i. validate
+            for k,v in shock_specs.items():
+
+                if not k[0] == 'd':                    
+                    raise ValueError(f'error for {k} in shock_specs, format should be {{dVARNAME:PATH}}')
+                if not k[1:] in self.shocks: 
+                    raise ValueError(f'error for {k} in shock_specs, format should be {{dVARNAME:PATH}} with VARNAME in .shocks')
+                if not v.ravel().size == self.par.T: 
+                    raise ValueError(f'shock_specs[k].shape = {shock_specs[k].shape}, should imply .ravel().size == par.T')
+
+            # ii. apply
+            for shockname in self.shocks:
+
+                patharray = getattr(self.path,shockname)
+                ssvalue = getattr(self.ss,shockname)
+                            
+                
+                # a. custom path
+                patharray[:,:] = ssvalue
+                if (dshockname := f'd{shockname}') in shock_specs:
+                    patharray[:,:Tshock] = ssvalue + shock_specs[dshockname][:Tshock]
 
     def _set_ini(self,ini_input=None):
         """ set initial distribution """
@@ -1444,6 +1465,57 @@ class GEModelClass:
                     print(f'{varname}: terminal value is {endpathval:12.8f}, but ss value is {ssval:12.8f}')
 
         if do_print: print(f'\ntransition path found in {elapsed(t0)}')
+
+    def decompose_subblock(self,shock_specs,unknows,targets,implied=None,do_print=False,do_plot=False,do_end_check=False,**kwargs):
+        """ decompose sub-blocks """
+
+        if implied is None: implied = [] 
+
+        if not type(shock_specs) is list:
+            shock_specs_list = [shock_specs]
+        else:
+            shock_specs_list = shock_specs
+
+        # a. base copy
+        model_ = self.copy()
+
+        model_.unknowns = unknows
+        model_.targets = targets
+        model_.shocks = [x for x in self.varlist if not x in unknows+targets+implied]        
+        model_.ouputs_hh = [] # not household block
+
+        # b. re-compute Jacobian
+        model_.allocate_GE(update_hh=False,ss_nan=False) # re-shapes neccessary 
+        model_.compute_jacs(do_print=do_print,skip_hh=True,skip_shocks=True)
+
+        # c. find transition paths
+        paths = []
+        models = []
+        for shock_specs in shock_specs_list:
+
+            model_.find_transition_path(do_print=do_print,shock_specs=shock_specs,do_end_check=do_end_check)
+
+            model__ = SimpleNamespace()
+            model__.par = self.par
+            model__.ss = self.ss
+            model__.IRF = self.IRF
+            model__.shocks = model_.shocks
+            model__.unknowns = model_.unknowns
+            model__.targets = model_.targets
+            model__.path = deepcopy(model_.path)
+            models.append(model__)
+
+            paths.append(model_.path)
+
+        labels = [None]*len(models)
+
+        # d. plot
+        
+        if do_plot:
+            shocks = [k[1:] for k in shock_specs.keys()]
+            show_IRFs(models,labels,shocks+unknows+implied+targets,do_shocks=False,do_targets=False,**kwargs)
+
+        return paths
 
     ###########
     # 6. IRFs #

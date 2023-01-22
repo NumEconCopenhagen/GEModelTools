@@ -37,6 +37,7 @@ def show_IRFs(models,labels,varnames,
             if not varname in pows: pows[varname] = 1.0
 
     # figures
+    do_legend = any([not x is None for x in labels])
     for (typename,varnames) in full_list:
         
         print(f'### {typename} ###')
@@ -117,7 +118,7 @@ def show_IRFs(models,labels,varnames,
                     if do_linear:
                         ax.plot(np.arange(T_max),IRFvalue[:T_max],ls='--',label='linear')
             
-            if (len(labels) > 1 or do_linear) and i == 0: ax.legend(frameon=True)
+            if do_legend and (len(labels) > 1 or do_linear) and i == 0: ax.legend(frameon=True)
             
         fig.tight_layout(pad=3.0)
         plt.show()
