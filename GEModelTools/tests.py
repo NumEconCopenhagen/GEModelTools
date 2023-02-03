@@ -6,6 +6,7 @@ colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 from copy import deepcopy
 
+from .path import get_varnames
 from consav.misc import elapsed
 
 def hh_z_path(model):
@@ -67,47 +68,89 @@ def hh_path(model):
 
         ax.set_ylim([-1e-4,1e-4])
         
-def path(model):
-    """ test evaluation of path """
+def print_varname_check(model,varname):
 
-    print('note: inputs = steady state value -> expected: no difference to steady state and zero errors\n')
-
-    par = model.par
     ss = model.ss
     path = model.path
 
-    # a. set exogenous and endogenous to steady state
-    model._set_shocks_ss()
-    model._set_unknowns_ss()
-    
-    # b. baseline evaluation at steady state 
-    model.evaluate_path()
-
-    # c. 
-    print('difference to value at steady state:')
-    for varname in model.varlist:
-
-        pathvalue = getattr(path,varname)[0,:]
-        ssvalue = getattr(ss,varname)
-
-        if np.isnan(ssvalue): continue
-
-        diff_t0 = pathvalue[0]-ssvalue
-        max_abs_diff = np.max(np.abs(pathvalue-ssvalue))
-
-        print(f'{varname:15s}: t0 = {diff_t0:8.1e}, max abs. {max_abs_diff:8.1e}')
-
-    print('\nabsolute value (potential targets):')
-    for varname in model.varlist:
-
-        pathvalue = getattr(path,varname)[0,:]
-        ssvalue = getattr(ss,varname)
-
-        if not np.isnan(ssvalue): continue
+    if varname in model.targets:
         
-        max_abs = np.max(np.abs(pathvalue))
+        max_abs_val = np.max(np.abs(path.__dict__[varname][0,:]))
 
-        print(f'{varname:15s}: t0 = {pathvalue[0]:8.1e}, max abs. {max_abs:8.1e}')        
+        print(f' {varname:15s} {max_abs_val:8.1e} [target]')
+
+    else:
+
+        diff = path.__dict__[varname][0,:]-ss.__dict__[varname]
+        max_abs_diff = np.max(np.abs(diff))
+
+        print(f' {varname:15s} {max_abs_diff:8.1e}')
+
+def path(model):
+    """ test evaluation of path """
+
+    print('note: inputs = steady state value -> expected: no difference to steady state and targets are zero\n')
+
+    #model_ = model
+    model_ = model.copy()
+
+    par = model_.par
+    ss = model_.ss
+    path = model_.path
+
+    # a. prepare
+    model_._set_ini(ini_input='ss')
+
+
+    # c. shock and unknowns
+    inputs = []
+
+    print('shocks: ',end='')
+    for shock in model_.shocks:
+
+        model_._set_shocks_ss()
+        print(f'{shock} ',end='')
+        inputs.append(shock)
+
+
+    print('\nunknowns: ',end='')
+    for unknown in model_.unknowns:
+
+        model_._set_unknowns_ss()
+        print(f'{unknown} ',end='')
+        inputs.append(unknown)
+
+    print('')
+
+    for blockstr in model_.blocks:
+
+        if blockstr == 'hh':
+
+            print('hh')
+
+            model_.solve_hh_path()
+            model_.simulate_hh_path()
+
+            for varname in model_.outputs_hh:
+                varname_ = f'{varname.upper()}_hh'
+                inputs.append(varname_)
+                print_varname_check(model_,varname_)
+
+        else:
+
+            print(blockstr)
+
+            varnames = get_varnames(blockstr)
+            for varname in varnames:
+                if not varname in inputs:
+                    model_.path.__dict__[varname][:,:] = np.nan
+
+            model_.call_block(blockstr)
+
+            for varname in varnames:
+                if not varname in inputs:
+                    print_varname_check(model_,varname)
+                    inputs.append(varname)
 
 def jacs(model,s_list=None,dx=1e-4):
     """ test the computation of hh Jacobians with direct and fake news method, and the overall Jacobian"""
@@ -153,44 +196,16 @@ def jacs(model,s_list=None,dx=1e-4):
                     diff = jac_hh_var[:,s]-jac_hh_var_direct[:,s]
                     ax_diff.plot(np.arange(par.T),diff,color=colors[j])
 
-                if i == 0: ax.legend(frameon=True)
+                if i == 0: ax.legend(frameon=True,bbox_to_anchor=(0.5,1.25))
                 i += 1            
 
-        # d. condition numbers
-        print('')
-        for outputname in model.outputs_hh:
-            Outputname_hh = f'{outputname.upper()}_hh'
-            print(f'{Outputname_hh}:')
-            for inputname in model.inputs_hh_all:
-                cond = np.linalg.cond(model.jac_hh[(Outputname_hh,inputname)])
-                mean = np.mean(model.jac_hh[(Outputname_hh,inputname)])            
-                if ~np.all(np.isclose(model.jac_hh[(Outputname_hh,inputname)],0.0)):
-                    print(f' {inputname:15s}: {cond = :.1e} [{mean = :8.1e}]')
-            print('')
-
+        fig.tight_layout()
+        
     # e. condition numbers - full Jacobian
+    print('')
     model._compute_jac(inputs='unknowns',dx=dx,do_print=True)
     model._compute_jac(inputs='shocks',dx=dx,do_print=True)
-    print('')
 
-    for targetname in model.targets:
-        print(f'{targetname}:')
-        for inputname in model.unknowns + model.shocks:
-            cond = np.linalg.cond(model.jac[(targetname,inputname)])
-            mean = np.mean(model.jac[(targetname,inputname)])
-            if ~np.all(np.isclose(model.jac[(targetname,inputname)],0.0)):
-                print(f' {inputname:15s}: {cond = :.1e} [{mean = :8.1e}]')            
-        print('')
-
-    for jacname in ['H_U','H_Z']:
-        
-        jac = getattr(model,jacname)
-        cond = np.linalg.cond(jac)
-        mean = np.mean(jac)
-        if ~np.all(np.isclose(jac,0.0)):
-            print(f'{jacname:15s}: {cond = :.1e} [{mean = :8.1e}]')            
-
-    print('')
 
 def evaluate_speed(model):
     """ test household solution and simulation along path """

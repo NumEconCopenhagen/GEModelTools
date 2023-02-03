@@ -4,8 +4,6 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-plt.rcParams.update({"axes.grid" : True, "grid.color": "black", "grid.alpha":"0.25", "grid.linestyle": "--"})
-plt.rcParams.update({'font.size': 14})
 
 def show_IRFs(models,labels,varnames,
             abs_diff=None,lvl_value=None,facs=None,pows=None,
@@ -40,7 +38,7 @@ def show_IRFs(models,labels,varnames,
     do_legend = any([not x is None for x in labels])
     for (typename,varnames) in full_list:
         
-        print(f'### {typename} ###')
+        if do_shocks or do_targets: print(f'### {typename} ###')
         
         num = len(varnames)
         nrows = num//ncols+1
@@ -56,7 +54,7 @@ def show_IRFs(models,labels,varnames,
             
             for label,model_ in zip(labels,models):
             
-                pathvalue = model_.path.__dict__[varname][0,:]
+                pathvalue = model_.path.__dict__[varname][:,0]
                 IRFvalue = model_.IRF[varname]               
 
                 if not np.isnan(getattr(model_.ss,varname)):
@@ -125,4 +123,4 @@ def show_IRFs(models,labels,varnames,
         print('')
 
         # save
-        if not filename is None: fig.savefig(filename)
+        if not filename is None: fig.savefig(f'{filename}_{typename}.pdf')

@@ -87,7 +87,7 @@ def find_i_and_w_2d_1d_path(T,path_pol1,grid_endo,grid1,grid2,path_i,path_w):
 #######
 
 @nb.njit(parallel=True)
-def simulate_hh_forwards_exo(Dbeg,z_trans_T,D):
+def simulate_hh_forwards_exo(Dbeg,z_trans,D):
     """ exogenous stochastic transition given transition matrix """
 
     Nfix = Dbeg.shape[0]
@@ -101,9 +101,14 @@ def simulate_hh_forwards_exo(Dbeg,z_trans_T,D):
             for i_z in nb.prange(Nz):
                 for i_endo1 in nb.prange(Nendo1):
 
+                    if z_trans.ndim == 3:
+                        z_trans_ = z_trans[i_fix,:,:]
+                    else: 
+                        z_trans_ = z_trans[i_fix,i_endo1,:,:]
+
                     D[i_fix,i_z,i_endo1] = 0.0
                     for i_z_lag in range(Nz):
-                        D[i_fix,i_z,i_endo1] += z_trans_T[i_fix,i_z,i_z_lag]*Dbeg[i_fix,i_z_lag,i_endo1]
+                        D[i_fix,i_z,i_endo1] += z_trans_[i_z_lag,i_z]*Dbeg[i_fix,i_z_lag,i_endo1]
 
     elif Dbeg.ndim == 4:
 
@@ -112,13 +117,18 @@ def simulate_hh_forwards_exo(Dbeg,z_trans_T,D):
         Nendo2 = Dbeg.shape[3]
 
         for i_fix in nb.prange(Nfix):
-            for i_z in nb.prange(Nz):
+            for i_z in range(Nz):
                 for i_endo1 in nb.prange(Nendo1):
                     for i_endo2 in nb.prange(Nendo2):
 
+                        if z_trans.ndim == 3:
+                            z_trans_ = z_trans[i_fix,:,:]
+                        else: 
+                            z_trans_ = z_trans[i_fix,i_endo1,i_endo2,:,:]
+                            
                         D[i_fix,i_z,i_endo1,i_endo2] = 0.0
-                        for i_z_lag in range(Nz):
-                            D[i_fix,i_z,i_endo1,i_endo2] += z_trans_T[i_fix,i_z,i_z_lag]*Dbeg[i_fix,i_z_lag,i_endo1,i_endo2]
+                        for i_z_lag in nb.prange(Nz):
+                            D[i_fix,i_z,i_endo1,i_endo2] += z_trans_[i_z_lag,i_z]*Dbeg[i_fix,i_z_lag,i_endo1,i_endo2]
 
     else:
 
@@ -140,8 +150,13 @@ def simulate_hh_forwards_exo_transpose(Dbeg,z_trans):
             for i_z in nb.prange(Nz):
                 for i_endo1 in nb.prange(Nendo1):
 
+                    if z_trans.ndim == 3:
+                        z_trans_ =  z_trans[i_fix,:,:]
+                    else:
+                        z_trans_ =  z_trans[i_fix,i_endo1,:,:]
+
                     for i_z_lag in range(Nz):
-                        D[i_fix,i_z,i_endo1] += z_trans[i_fix,i_z,i_z_lag]*Dbeg[i_fix,i_z_lag,i_endo1]
+                        D[i_fix,i_z,i_endo1] += z_trans_[i_z,i_z_lag]*Dbeg[i_fix,i_z_lag,i_endo1]
 
     elif Dbeg.ndim == 4:
 
@@ -154,8 +169,13 @@ def simulate_hh_forwards_exo_transpose(Dbeg,z_trans):
                 for i_endo1 in nb.prange(Nendo1):
                     for i_endo2 in nb.prange(Nendo2):
 
+                        if z_trans.ndim == 3:
+                            z_trans_ =  z_trans[i_fix,:,:]
+                        else:
+                            z_trans_ =  z_trans[i_fix,i_endo1,i_endo2,:,:]                       
+
                         for i_z_lag in range(Nz):
-                            D[i_fix,i_z,i_endo1,i_endo2] += z_trans[i_fix,i_z,i_z_lag]*Dbeg[i_fix,i_z_lag,i_endo1,i_endo2]
+                            D[i_fix,i_z,i_endo1,i_endo2] += z_trans_[i_z,i_z_lag]*Dbeg[i_fix,i_z_lag,i_endo1,i_endo2]
     else:
 
         raise NotImplementedError
@@ -314,25 +334,24 @@ def simulate_hh_forwards_endo_transpose(Dbeg_plus,i,w):
 ############
 
 @nb.njit
-def simulate_hh_forwards(D,i,w,z_trans_T,D_plus):
+def simulate_hh_forwards(D,i,w,z_trans,D_plus):
 
     Dbeg_plus = np.zeros(D.shape)
     simulate_hh_forwards_endo(D,i,w,Dbeg_plus)
-    simulate_hh_forwards_exo(Dbeg_plus,z_trans_T,D_plus)
+    simulate_hh_forwards_exo(Dbeg_plus,z_trans,D_plus)
 
 @nb.njit
 def simulate_hh_ss(par,ss):
     """ simulate forwards to steady state """
 
     it = 0
-    z_trans_T = np.transpose(ss.z_trans,axes=(0,2,1)).copy()
 
     while True:
         
         old_D = ss.D.copy()
 
         # i. exogenous update
-        simulate_hh_forwards_exo(ss.Dbeg,z_trans_T,ss.D)
+        simulate_hh_forwards_exo(ss.Dbeg,ss.z_trans,ss.D)
 
         # ii. check convergence
         if it > 1 and np.max(np.abs(ss.D-old_D)) < par.tol_simulate: 
@@ -357,10 +376,10 @@ def simulate_hh_path(par,path):
 
         Dbeg = path.Dbeg[t]
         D = path.D[t]
-        z_trans_T = np.transpose(path.z_trans[t],axes=(0,2,1)).copy()
+        z_trans = path.z_trans[t]
 
         # a. exogenous update
-        simulate_hh_forwards_exo(Dbeg,z_trans_T,D)
+        simulate_hh_forwards_exo(Dbeg,z_trans,D)
 
         # b. endogenous update
         if t < par.T-1:
@@ -370,22 +389,3 @@ def simulate_hh_path(par,path):
             w = path.pol_weights[t]
 
             simulate_hh_forwards_endo(D,i,w,Dbeg_plus)
-
-@nb.njit
-def simulate_hh_z_path(par,z_trans,Dz,Dz_ini):
-    """ find steady state for exogenous distribution """
-
-    for t in range(par.T):
-
-        # a. lagged
-        if t == 0:
-            Dz_lag = Dz_ini
-        else:                
-            Dz_lag = Dz[t-1]
-
-        # b. transpose
-        z_trans_T = np.transpose(z_trans[t],axes=(0,2,1)).copy()
-
-        # c. update
-        for i_fix in range(par.Nfix):
-            Dz[t,i_fix] = z_trans_T[i_fix]@Dz_lag[i_fix]
