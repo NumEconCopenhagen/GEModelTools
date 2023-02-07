@@ -89,8 +89,6 @@ def print_varname_check(model,varname):
 def path(model):
     """ test evaluation of path """
 
-    print('note: inputs = steady state value -> expected: no difference to steady state and targets are zero\n')
-
     #model_ = model
     model_ = model.copy()
 
@@ -120,7 +118,7 @@ def path(model):
         print(f'{unknown} ',end='')
         inputs.append(unknown)
 
-    print('')
+    print('\n')
 
     for blockstr in model_.blocks:
 
