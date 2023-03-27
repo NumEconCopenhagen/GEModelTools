@@ -75,13 +75,13 @@ def print_varname_check(model,varname):
 
     if varname in model.targets:
         
-        max_abs_val = np.max(np.abs(path.__dict__[varname][0,:]))
+        max_abs_val = np.max(np.abs(path.__dict__[varname][:,0]))
 
         print(f' {varname:15s} {max_abs_val:8.1e} [target]')
 
     else:
 
-        diff = path.__dict__[varname][0,:]-ss.__dict__[varname]
+        diff = path.__dict__[varname][:,0]-ss.__dict__[varname]
         max_abs_diff = np.max(np.abs(diff))
 
         print(f' {varname:15s} {max_abs_diff:8.1e}')
@@ -98,7 +98,6 @@ def path(model):
 
     # a. prepare
     model_._set_ini(ini_input='ss')
-
 
     # c. shock and unknowns
     inputs = []
