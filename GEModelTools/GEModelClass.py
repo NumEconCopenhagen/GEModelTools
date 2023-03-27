@@ -276,6 +276,7 @@ class GEModelClass:
         par.__dict__.setdefault('py_hh',True)
         par.__dict__.setdefault('py_block',True)
         par.__dict__.setdefault('full_z_trans',False)
+        par.__dict__.setdefault('only_nonlinear',False)
 
         # c. allocate grids and transition matrices
         if update_hh:
@@ -324,15 +325,17 @@ class GEModelClass:
             path.pol_weights = np.zeros((par.T,Npol,*sol_shape))
 
             # ii. sim
-            for polname in self.pols_hh:
-                sim.__dict__[polname] = np.zeros(sim_pol_shape)
-                sim.__dict__[f'{polname.upper()}_hh_from_D'] = np.zeros(par.simT)
+            if not par.only_nonlinear:
 
-            sim.z_trans = np.zeros((par.simT,par.Nfix,par.Nz,par.Nz))
-            sim.D = np.zeros(sim_pol_shape)
-            sim.Dbeg = np.zeros(sim_pol_shape)
-            sim.pol_indices = np.zeros((par.simT,Npol,*sol_shape),dtype=np.int_)
-            sim.pol_weights = np.zeros((par.simT,Npol,*sol_shape))
+                for polname in self.pols_hh:
+                    sim.__dict__[polname] = np.zeros(sim_pol_shape)
+                    sim.__dict__[f'{polname.upper()}_hh_from_D'] = np.zeros(par.simT)
+
+                sim.z_trans = np.zeros((par.simT,par.Nfix,par.Nz,par.Nz))
+                sim.D = np.zeros(sim_pol_shape)
+                sim.Dbeg = np.zeros(sim_pol_shape)
+                sim.pol_indices = np.zeros((par.simT,Npol,*sol_shape),dtype=np.int_)
+                sim.pol_weights = np.zeros((par.simT,Npol,*sol_shape))
 
         # e. allocate path and sim variables
         path_shape = (par.T,1)
@@ -341,7 +344,8 @@ class GEModelClass:
                 ss.__dict__[varname] = np.nan
                 ini.__dict__[varname] = np.nan
             path.__dict__[varname] = np.zeros(path_shape)
-            sim.__dict__[f'd{varname}'] = np.zeros(par.simT)
+            if not par.only_nonlinear:
+                sim.__dict__[f'd{varname}'] = np.zeros(par.simT)
 
         # f. allocate Jacobians
         if update_hh:
@@ -352,28 +356,37 @@ class GEModelClass:
                     self.jac_hh[key] = np.zeros((par.T,par.T))            
 
         self.jac = {}
-        for outputname in self.varlist:
-            for inputname in self.unknowns+self.shocks:
-                key = (outputname,inputname)
-                self.jac[key] = np.zeros((par.T,par.T))
+        if not par.only_nonlinear:
+            for outputname in self.varlist:
+                for inputname in self.unknowns+self.shocks:
+                    key = (outputname,inputname)
+                    self.jac[key] = np.zeros((par.T,par.T))
 
         self.H_U = np.zeros((
             len(self.targets)*par.T,
             len(self.unknowns)*par.T))
 
-        self.H_Z = np.zeros((
-            len(self.targets)*par.T,
-            len(self.shocks)*par.T))
-
-        self.G_U = np.zeros(self.H_Z.shape)
-
-        # g. allocate IRFs
         self.IRF = {}
-        for varname in self.varlist:
-            self.IRF[varname] = np.repeat(np.nan,par.T)
-            for shockname in self.shocks:
-                self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
+        if not par.only_nonlinear:
 
+            self.H_Z = np.zeros((
+                len(self.targets)*par.T,
+                len(self.shocks)*par.T))
+
+            self.G_U = np.zeros(self.H_Z.shape)
+
+            # g. allocate IRFs
+            for varname in self.varlist:
+                self.IRF[varname] = np.repeat(np.nan,par.T)
+                for shockname in self.shocks:
+                    self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
+                    
+        else:
+
+            self.H_Z = None
+            self.G_U = None
+            self.IRF = None
+            
     def prepare_hh_ss(self):
         """ prepare the household block to solve for steady state """
 
@@ -1295,19 +1308,20 @@ class GEModelClass:
             jac_mat[:,:] = (errors.reshape(jac_mat.shape)-base[:,np.newaxis])/dx
 
         # iv. all other variables
-        for i_input,inputname in enumerate(inputs):
-            for outputname in self.varlist:
-                
-                key = (outputname,inputname)
-                if do_unknowns or do_shocks:
-                    jac = self.jac[key]
-                else:
-                    jac = jac_dict[key] = np.zeros((par.T,par.T))
+        if not par.only_nonlinear:
+            for i_input,inputname in enumerate(inputs):
+                for outputname in self.varlist:
                     
-                for s in range(par.T):
+                    key = (outputname,inputname)
+                    if do_unknowns or do_shocks:
+                        jac = self.jac[key]
+                    else:
+                        jac = jac_dict[key] = np.zeros((par.T,par.T))
+                        
+                    for s in range(par.T):
 
-                    thread = i_input*par.T+s
-                    jac[:,s] = (path.__dict__[outputname][:,thread]-path_ss.__dict__[outputname][:,0])/dx
+                        thread = i_input*par.T+s
+                        jac[:,s] = (path.__dict__[outputname][:,thread]-path_ss.__dict__[outputname][:,0])/dx
 
         if do_print:
             if do_unknowns:
