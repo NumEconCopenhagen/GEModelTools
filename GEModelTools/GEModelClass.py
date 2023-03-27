@@ -1,5 +1,8 @@
 # contains main GEModelClass
 
+import os
+import psutil
+
 import importlib
 import time
 
@@ -23,7 +26,6 @@ from .broyden_solver import broyden_solver
 from .simulate import update_IRF_hh,simulate_agg,simulate_agg_hh
 from .figures import show_IRFs
 from .path import get_varnames
-
 
 class GEModelClass:
 
@@ -276,7 +278,6 @@ class GEModelClass:
         par.__dict__.setdefault('py_hh',True)
         par.__dict__.setdefault('py_block',True)
         par.__dict__.setdefault('full_z_trans',False)
-        par.__dict__.setdefault('only_nonlinear',False)
 
         # c. allocate grids and transition matrices
         if update_hh:
@@ -325,17 +326,15 @@ class GEModelClass:
             path.pol_weights = np.zeros((par.T,Npol,*sol_shape))
 
             # ii. sim
-            if not par.only_nonlinear:
+            for polname in self.pols_hh:
+                sim.__dict__[polname] = np.zeros(sim_pol_shape)
+                sim.__dict__[f'{polname.upper()}_hh_from_D'] = np.zeros(par.simT)
 
-                for polname in self.pols_hh:
-                    sim.__dict__[polname] = np.zeros(sim_pol_shape)
-                    sim.__dict__[f'{polname.upper()}_hh_from_D'] = np.zeros(par.simT)
-
-                sim.z_trans = np.zeros((par.simT,par.Nfix,par.Nz,par.Nz))
-                sim.D = np.zeros(sim_pol_shape)
-                sim.Dbeg = np.zeros(sim_pol_shape)
-                sim.pol_indices = np.zeros((par.simT,Npol,*sol_shape),dtype=np.int_)
-                sim.pol_weights = np.zeros((par.simT,Npol,*sol_shape))
+            sim.z_trans = np.zeros((par.simT,par.Nfix,par.Nz,par.Nz))
+            sim.D = np.zeros(sim_pol_shape)
+            sim.Dbeg = np.zeros(sim_pol_shape)
+            sim.pol_indices = np.zeros((par.simT,Npol,*sol_shape),dtype=np.int_)
+            sim.pol_weights = np.zeros((par.simT,Npol,*sol_shape))
 
         # e. allocate path and sim variables
         path_shape = (par.T,1)
@@ -344,8 +343,7 @@ class GEModelClass:
                 ss.__dict__[varname] = np.nan
                 ini.__dict__[varname] = np.nan
             path.__dict__[varname] = np.zeros(path_shape)
-            if not par.only_nonlinear:
-                sim.__dict__[f'd{varname}'] = np.zeros(par.simT)
+            sim.__dict__[f'd{varname}'] = np.zeros(par.simT)
 
         # f. allocate Jacobians
         if update_hh:
@@ -355,38 +353,51 @@ class GEModelClass:
                     key = (f'{outputname.upper()}_hh',inputname)
                     self.jac_hh[key] = np.zeros((par.T,par.T))            
 
-        self.jac = {}
-        if not par.only_nonlinear:
+        self.allocate_GE_jac()
+        self.allocate_GE_IRF()
+
+    def allocate_GE_jac(self,H_U=True,H_Z=True,G_U=True,jac=True):
+        """ allocate GE Jac """
+
+        par = self.par
+
+        if H_U: self.H_U = np.zeros((len(self.targets)*par.T,len(self.unknowns)*par.T))
+        if H_Z: self.H_Z = np.zeros((len(self.targets)*par.T,len(self.shocks)*par.T))
+        if G_U: self.G_U = np.zeros(self.H_Z.shape)
+
+        if jac:
+
+            self.jac = {}
             for outputname in self.varlist:
                 for inputname in self.unknowns+self.shocks:
                     key = (outputname,inputname)
                     self.jac[key] = np.zeros((par.T,par.T))
 
-        self.H_U = np.zeros((
-            len(self.targets)*par.T,
-            len(self.unknowns)*par.T))
+    def allocate_GE_IRF(self):
+        """ allocate GE IRF """
+
+        par = self.par
 
         self.IRF = {}
-        if not par.only_nonlinear:
+        for varname in self.varlist:
+            self.IRF[varname] = np.repeat(np.nan,par.T)
+            for shockname in self.shocks:
+                self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
 
-            self.H_Z = np.zeros((
-                len(self.targets)*par.T,
-                len(self.shocks)*par.T))
-
-            self.G_U = np.zeros(self.H_Z.shape)
-
-            # g. allocate IRFs
-            for varname in self.varlist:
-                self.IRF[varname] = np.repeat(np.nan,par.T)
-                for shockname in self.shocks:
-                    self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
-                    
-        else:
-
-            self.H_Z = None
-            self.G_U = None
-            self.IRF = None
+    def compress(self,do_print=False):
+        """ compress model """
+        
+        self.H_Z = None
+        self.G_U = None
+        self.jac = None
+        self.IRF = None
             
+    def decompress(self):
+        """ decompress model """
+
+        self.allocate_GE_jac(H_U=False)
+        self.allocate_GE_jac()
+
     def prepare_hh_ss(self):
         """ prepare the household block to solve for steady state """
 
@@ -812,10 +823,9 @@ class GEModelClass:
             patharray = getattr(self.path,inputname)
             patharray[:,:] = ssvalue
 
-    def decompose_hh_path(self,do_print=False,Dbeg=None,use_inputs=None,custom_paths=None,fix_z_trans=False):
+    def decompose_hh_path(self,do_print=False,Dbeg=None,use_inputs=None,custom_paths=None):
         """ decompose household transition path wrt. inputs or initial distribution """
 
-        par = self.par
         ss = self.ss
 
         if use_inputs is None: 
@@ -846,10 +856,6 @@ class GEModelClass:
 
         # c. solve and simulate
         if not use_inputs == 'all': self.solve_hh_path(do_print=do_print)
-
-        if fix_z_trans:
-            for t in range(par.T):
-                path.z_trans[t] = ss.z_trans
 
         self.simulate_hh_path(do_print=do_print,Dbeg=Dbeg)
 
@@ -1308,7 +1314,8 @@ class GEModelClass:
             jac_mat[:,:] = (errors.reshape(jac_mat.shape)-base[:,np.newaxis])/dx
 
         # iv. all other variables
-        if not par.only_nonlinear:
+        if not (do_unknowns or do_shocks) or not self.jac is None:
+
             for i_input,inputname in enumerate(inputs):
                 for outputname in self.varlist:
                     
