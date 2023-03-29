@@ -398,6 +398,21 @@ class GEModelClass:
         self.allocate_GE_jac(H_U=False)
         self.allocate_GE_jac()
 
+    def compress_full(self):
+
+        self.H_U = None
+        self.H_Z = None
+        self.G_U = None
+        self.IRF = None
+        self.jac = None
+        self.jac_hh = None
+        self.ini = None
+        self.sim = None
+
+        for varname in self.outputs_hh:
+            self.ss.__dict__[varname] = None
+            self.path.__dict__[varname] = None
+                    
     def prepare_hh_ss(self):
         """ prepare the household block to solve for steady state """
 
