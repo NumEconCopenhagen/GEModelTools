@@ -385,7 +385,7 @@ class GEModelClass:
                 self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
 
     def compress(self,do_print=False):
-        """ compress model """
+        """ compress model - no linear """
         
         self.H_Z = None
         self.G_U = None
@@ -399,6 +399,7 @@ class GEModelClass:
         self.allocate_GE_jac()
 
     def compress_full(self):
+        """ compress model - not working afterwards """
 
         self.H_U = None
         self.H_Z = None
