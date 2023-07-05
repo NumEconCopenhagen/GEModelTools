@@ -4,5 +4,5 @@ from .simulate_hh import find_i_and_w_1d_1d, find_i_and_w_1d_1d_path
 from .simulate_hh import simulate_hh_forwards_endo, simulate_hh_forwards_exo, simulate_hh_forwards
 from .simulate_hh import simulate_hh_forwards_endo_transpose, simulate_hh_forwards_exo_transpose
 from .simulate_hh import simulate_hh_ss, simulate_hh_path
-from .path import lag, lead, prev, next, bound, bisection, get_varnames
+from .path import lag, lead, isclose, prev, next, bound, bisection, get_varnames
 from .GEModelClass import GEModelClass
