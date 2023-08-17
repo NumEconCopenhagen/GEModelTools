@@ -384,20 +384,6 @@ class GEModelClass:
             for shockname in self.shocks:
                 self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
 
-    def compress(self,do_print=False):
-        """ compress model """
-        
-        self.H_Z = None
-        self.G_U = None
-        self.jac = None
-        self.IRF = None
-            
-    def decompress(self):
-        """ decompress model """
-
-        self.allocate_GE_jac(H_U=False)
-        self.allocate_GE_jac()
-
     def compress_full(self):
 
         self.H_U = None
@@ -1506,7 +1492,7 @@ class GEModelClass:
             
             raise NotImplemented('ini must be a dictionary')
             
-    def find_IRFs(self,shocks=None,reuse_G_U=False,do_print=False):
+    def find_IRFs(self,shocks,reuse_G_U=False,do_print=False):
         """ find linearized impulse responses """
         
         shocks = self._check_shocks(shocks)
@@ -1678,90 +1664,6 @@ class GEModelClass:
                     print(f'{varname}: terminal value is {endpathval:12.8f}, but ss value is {ssval:12.8f}')
 
         if do_print: print(f'\ntransition path found in {elapsed(t0)}')
-
-    def decompose_blocks(self,shocks,blocks,labels=None,unknowns=None,targets=None,do_print=False,do_plot=False,do_end_check=False,**kwargs):
-        """ decompose sub-block """
-
-        par = self.par
-        ss = self.ss
-
-        # a1. validate input format
-        if unknowns is None: unknowns = []
-        if targets is None: targets = [{}]*len(shocks)
-
-        msg = f'shocks must be list of dict, [{{dVARNAME:VALUES}}], with same keys'
-        assert type(shocks) is list, msg
-        shocks_str = [k[1:] for k in shocks[0].keys()]
-        for shocks_ in shocks:
-            assert type(shocks_) is dict, msg
-            assert [k[1:] for k in shocks_.keys()] == shocks_str, msg
-
-        msg = f'targets must be list of dict, [{{dVARNAME:VALUES}}], with same keys'
-        assert type(targets) is list, msg
-        targets_str =  [k for k in targets[0].keys()]
-        for targets_ in targets:
-            assert type(targets_) is dict, msg
-            assert  [k for k in targets_.keys()] == targets_str, msg
-        assert len(shocks) == len(targets)
-
-        assert len(targets_str) == len(unknowns), f'number of unknowns = {len(unknowns)} must equal number of targets = {len(targets_str)}' 
-
-        # a2. validate input names
-        varlist = self.get_varlist_from_blocks(blocks)
-        
-        for unknown in unknowns:
-            assert unknown in varlist, f'unknown {unknown} is not in varlist of blocks, {varlist}'
-
-        for shock in shocks_str:
-            assert shock in varlist, f'shocks key shock is not in varlist of blocks, {varlist}'
-
-        for target in targets_str:
-            assert target in varlist, f'target {target} is not in varlist of blocks, {varlist}'
-
-        # a. base copy
-        model_ = self.copy()
-
-        model_.unknowns = unknowns
-        model_.targets = targets_str
-        model_.shocks = [x for x in self.varlist if not x in unknowns+targets] + shocks_str
-        model_.blocks = blocks
-
-        # b. re-compute Jacobian
-        model_.allocate_GE(update_varlist=False,update_hh=False,ss_nan=False)
-
-        # c. find transition paths
-        paths = []
-        models = []
-        for shocks_,targets_ in zip(shocks,targets):
-
-            if len(targets_str) == 0:
-                model_._check_shocks(shocks_)
-                model_._set_shocks(shocks=shocks_)
-                model_.evaluate_blocks()
-            else:
-                model_._target_values = targets_
-                model_.compute_jacs(do_print=do_print,skip_hh=True,skip_shocks=True)
-                model_.find_transition_path(do_print=do_print,shocks=shocks_,do_end_check=do_end_check)
-
-            model__ = SimpleNamespace()
-            model__.par = self.par
-            model__.ss = self.ss
-            model__.IRF = self.IRF
-            model__.shocks = model_.shocks
-            model__.unknowns = model_.unknowns
-            model__.targets = model_.targets
-            model__.path = deepcopy(model_.path)
-            models.append(model__)
-
-            paths.append(model_.path)
-
-
-        # d. plot
-        if do_plot:
-            if labels is None: labels = [None]*len(models)
-            show_IRFs(models,labels,varlist,do_shocks=False,do_targets=False,**kwargs)
-
-        return paths
 
     ###########
     # 6. IRFs #
