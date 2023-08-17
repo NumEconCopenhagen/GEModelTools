@@ -385,6 +385,7 @@ class GEModelClass:
                 self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
 
     def compress_full(self):
+        """ compress model - not working afterwards """
 
         self.H_U = None
         self.H_Z = None

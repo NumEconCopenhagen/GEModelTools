@@ -46,6 +46,10 @@ def prev(x,t,inivalue):
         return np.repeat(inivalue,x.shape[1])
 
 @nb.njit
+def isclose(x,y):
+    return np.abs(x-y) < 1e-8 
+    
+@nb.njit
 def bound(var,a,b):
     return np.fmin(np.fmax(var,a),b)
 
