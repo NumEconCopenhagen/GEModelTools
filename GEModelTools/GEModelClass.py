@@ -1491,7 +1491,7 @@ class GEModelClass:
 
         else:
             
-            raise NotImplemented('ini must be a dictionary')
+            raise ValueError('ini must be a dictionary')
             
     def find_IRFs(self,shocks,reuse_G_U=False,do_print=False):
         """ find linearized impulse responses """
@@ -1924,7 +1924,6 @@ class GEModelClass:
     # 8. tests #
     ############
 
-    test_hh_z_path = tests.hh_z_path
     test_hh_path = tests.hh_path
     test_path = tests.path
     test_jacs = tests.jacs

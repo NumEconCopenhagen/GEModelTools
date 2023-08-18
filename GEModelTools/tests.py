@@ -1,3 +1,4 @@
+import warnings
 import time
 import numpy as np
 
@@ -9,34 +10,7 @@ from copy import deepcopy
 from .path import get_varnames
 from consav.misc import elapsed
 
-def hh_z_path(model):
-    """ test exogenous part of household simulation along path """
-
-    print('note: inputs = steady state value -> expected: constant value (straigt line)\n')
-
-    par = model.par
-    ss = model.ss
-    path = model.path
-
-    # a. solution and simulation hh along path
-    model._set_inputs_hh_all_ss()
-    model.simulate_hh_z_path(do_print=True)
-
-    # b. show mean of z
-    print('')
-    fig = plt.figure(figsize=(6,4))
-
-    Dz = path.Dz
-    y = np.array([np.sum(Dz[t]*par.z_grid)for t in range(par.T)])
-    y_ss = np.sum(par.z_grid*ss.Dz)
-
-    ax = fig.add_subplot(1,1,1)
-    ax.plot(np.arange(par.T),y-y_ss,'-')
-    ax.set_yscale('symlog', linthresh=1e-8)
-    ax.set_title('mean(path.z[t]-ss.z)')
-    ax.set_ylim([-1e-4,1e-4])
-
-def hh_path(model):
+def hh_path(model,ylim=1e-4):
     """ test household solution and simulation along path """
 
     print('note: inputs = steady state value -> expected: constant value (straigt line)\n')
@@ -51,22 +25,26 @@ def hh_path(model):
     model.simulate_hh_path(do_print=True)
 
     # b. show mean of each hh output
-    print('')
-    fig = plt.figure(figsize=(6,len(model.outputs_hh)*4))
-    for i,outputname in enumerate(model.outputs_hh):
-        
-        D = path.D
-        pol = getattr(path,f'{outputname}')
-        y = np.array([np.sum(D[t]*pol[t])for t in range(par.T)])
-        y_ss = getattr(ss,f'{outputname.upper()}_hh')
+    with warnings.catch_warnings():
 
-        ax = fig.add_subplot(len(model.outputs_hh),1,1+i)
-        ax.plot(np.arange(par.T),y-y_ss,'-')
-        ax.set_yscale('symlog', linthresh=1e-8)
-        Outputname_hh = f'{outputname.upper()}_hh'
-        ax.set_title(f'path.{Outputname_hh}[t] - ss.{Outputname_hh}')
+        warnings.simplefilter("ignore")
 
-        ax.set_ylim([-1e-4,1e-4])
+        print('')
+        fig = plt.figure(figsize=(6,len(model.outputs_hh)*4))
+        for i,outputname in enumerate(model.outputs_hh):
+            
+            D = path.D
+            pol = getattr(path,f'{outputname}')
+            y = np.array([np.sum(D[t]*pol[t])for t in range(par.T)])
+            y_ss = getattr(ss,f'{outputname.upper()}_hh')
+
+            ax = fig.add_subplot(len(model.outputs_hh),1,1+i)
+            ax.plot(np.arange(par.T),y-y_ss,'-')
+            ax.set_yscale('symlog', linthresh=1e-8)
+            Outputname_hh = f'{outputname.upper()}_hh'
+            ax.set_title(f'path.{Outputname_hh}[t] - ss.{Outputname_hh}')
+
+            ax.set_ylim([-ylim,ylim])
         
 def print_varname_check(model,varname):
 
@@ -86,11 +64,13 @@ def print_varname_check(model,varname):
 
         print(f' {varname:15s} {max_abs_diff:8.1e}')
 
-def path(model):
+def path(model,in_place=False):
     """ test evaluation of path """
 
-    #model_ = model
-    model_ = model.copy()
+    if in_place:
+        model_ = model
+    else:
+        model_ = model.copy()
 
     par = model_.par
     ss = model_.ss

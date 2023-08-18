@@ -32,18 +32,18 @@ def lead(pathvalue,ssvalue):
     return output
 
 @nb.njit
-def next(x,t,ssvalue):
-    if t+1 < x.shape[0]:
-        return x[t+1]
-    else:
-        return np.repeat(ssvalue,x.shape[1])
-
-@nb.njit
 def prev(x,t,inivalue):
     if t > 0:
         return x[t-1]
     else:
         return np.repeat(inivalue,x.shape[1])
+    
+@nb.njit
+def next(x,t,ssvalue):
+    if t+1 < x.shape[0]:
+        return x[t+1]
+    else:
+        return np.repeat(ssvalue,x.shape[1])
 
 @nb.njit
 def isclose(x,y):
