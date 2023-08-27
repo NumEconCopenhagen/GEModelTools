@@ -2,7 +2,7 @@
 
 A small code library for easily working with general equilibrium models in Python.
 
-The conceptual framework is taken from the seminal paper by Adrien Auclert, Bence Bardóczy, Matthew Rognlie, Ludwig Straub (2021), Using the Sequence-Space Jacobian to Solve and Estimate Heterogeneous-Agent Models, Econometrica 89(5), pp. 2375–2408. See their toolbox [here](https://github.com/shade-econ/sequence-jacobian) and course materials for a workshop [here](https://github.com/shade-econ/nber-workshop-2022).
+The conceptual framework is taken from the seminal paper by Adrien Auclert, Bence Bardóczy, Matthew Rognlie, Ludwig Straub (2021), Using the Sequence-Space Jacobian to Solve and Estimate Heterogeneous-Agent Models, Econometrica 89(5), pp. 2375–2408. See their toolbox [here](https://github.com/shade-econ/sequence-jacobian) and course materials for a workshop [here](https://github.com/shade-econ/nber-workshop-2023).
 
 # Installation (for development)
 
@@ -29,6 +29,9 @@ The main contributors are:
 Useful feedback has been provided especially by
 
 - Jacob Sundram
+- Erik Öberg
+- Karl Harmenberg
+- Tobias Broer
 - Søren Hove Ravn
 - Max Ørnes
 - Niels Hvingelby
