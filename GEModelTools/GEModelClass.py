@@ -540,10 +540,13 @@ class GEModelClass:
         for varname in self.outputs_hh + self.intertemps_hh: 
             if outputs_inplace:
                 stepvars_hh[varname] = getattr(ss,varname)
-                stepvars_hh['z_trans'] = ss.z_trans
             else:
                 stepvars_hh[varname] = getattr(ss,varname).copy()
-                stepvars_hh['z_trans'] = ss.z_trans.copy()
+        
+        if outputs_inplace:
+            stepvars_hh['z_trans'] = ss.z_trans
+        else:
+            stepvars_hh['z_trans'] = ss.z_trans.copy()
 
         return stepvars_hh
 
@@ -1076,7 +1079,7 @@ class GEModelClass:
                     # i. solve gradually backwards
                     stepvars_hh = self._get_stepvars_hh_ss(outputs_inplace=False)
 
-                    do_z_trans = (s == 0) and (len(self.inputs_hh_z) > 0) and (inputname in self.inputs_hh_z)
+                    do_z_trans = (len(self.inputs_hh_z) > 0) and (inputname in self.inputs_hh_z)
                     
                     if s == 0:
                         
