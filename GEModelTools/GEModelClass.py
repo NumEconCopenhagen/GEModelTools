@@ -5,6 +5,7 @@ import psutil
 
 import importlib
 import time
+import warnings
 
 from copy import deepcopy
 from types import SimpleNamespace
@@ -45,6 +46,7 @@ class GEModelClass:
             print(f' {par.py_hh = }')
             print(f' {par.py_block = }')
             print(f' {par.full_z_trans = }')
+            print(f' {par.warnings = }')
             print(f' {par.T = }')
 
             print('\nhouseholds:')
@@ -278,6 +280,7 @@ class GEModelClass:
         par.__dict__.setdefault('py_hh',True)
         par.__dict__.setdefault('py_block',True)
         par.__dict__.setdefault('full_z_trans',False)
+        par.__dict__.setdefault('warnings',True)
 
         # c. allocate grids and transition matrices
         if update_hh:
@@ -342,8 +345,8 @@ class GEModelClass:
             if ss_nan: 
                 ss.__dict__[varname] = np.nan
                 ini.__dict__[varname] = np.nan
-            path.__dict__[varname] = np.zeros(path_shape)
-            sim.__dict__[f'd{varname}'] = np.zeros(par.simT)
+            path.__dict__[varname] = np.nan*np.ones(path_shape)
+            sim.__dict__[f'd{varname}'] = np.nan*np.ones(par.simT)
 
         # f. allocate Jacobians
         if update_hh:
@@ -1289,7 +1292,7 @@ class GEModelClass:
         
         # c. calculate
         for varname in self.varlist:
-            path.__dict__[varname] = np.zeros((par.T,len(inputs)*par.T))
+            path.__dict__[varname] = np.nan*np.ones((par.T,len(inputs)*par.T))
 
         self._set_shocks_ss()
         self._set_unknowns_ss()
@@ -1558,12 +1561,27 @@ class GEModelClass:
         # a. update initial distribution
         self._set_ini(ini_input=ini)
 
-        # b. evaluate each blove
+        # b. evaluate each block
+        if par.warnings:
+
+            for shock in self.shocks:
+                
+                if np.isnan(path.__dict__[shock]).any():
+                    warnings.warn(f'warning: shock {shock} contains nan') 
+            
+            for unknown in self.unknowns:
+                
+                if np.isnan(path.__dict__[unknown]).any():
+                    warnings.warn(f'warning: unknown {unknown} contains nan') 
+                        
         for blockstr in self.blocks:
 
             # i. household block
             if blockstr == 'hh':
 
+                varnames = self.inputs_hh + self.inputs_hh_z 
+                varnames += [f'{outputname.upper()}_hh' for outputname in self.outputs_hh]
+                
                 if use_jac_hh and len(self.outputs_hh) > 0: # linearized
 
                     for outputname in self.outputs_hh:
@@ -1594,9 +1612,16 @@ class GEModelClass:
                     self.simulate_hh_path(Dbeg=self.ini.Dbeg)
 
             else:
-
+                
+                varnames = get_varnames(blockstr)
                 self.call_block(blockstr)
-            
+        
+            if par.warnings:
+                
+                for varname in varnames:
+                    if np.isnan(path.__dict__[varname]).any():
+                        warnings.warn(f'warning: variable {varname} contains nan ({blockstr})') 
+        
     def _evaluate_H(self,x,do_print=False):
         """ compute error in equation system for targets """
         
@@ -1927,6 +1952,7 @@ class GEModelClass:
     # 8. tests #
     ############
 
+    test_ss = tests.ss
     test_hh_path = tests.hh_path
     test_path = tests.path
     test_jacs = tests.jacs

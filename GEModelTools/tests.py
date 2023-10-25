@@ -10,6 +10,16 @@ from copy import deepcopy
 from .path import get_varnames
 from consav.misc import elapsed
 
+def ss(model,do_warnings=True):
+
+    for varname in model.varlist:
+    
+        if np.isnan(value := model.ss.__dict__[varname]):
+            print(f'{varname:15s}: nan')
+            if do_warnings: warnings.warn(f'warning: {varname} contains nan') 
+        else:    
+            print(f'{varname:15s}: {value:12.4f}')
+
 def hh_path(model,ylim=1e-4):
     """ test household solution and simulation along path """
 
@@ -46,6 +56,8 @@ def hh_path(model,ylim=1e-4):
 
             ax.set_ylim([-ylim,ylim])
         
+        fig.tight_layout(pad=1.0)
+    
 def print_varname_check(model,varname):
 
     ss = model.ss
@@ -64,7 +76,7 @@ def print_varname_check(model,varname):
 
         print(f' {varname:15s} {max_abs_diff:8.1e}')
 
-def path(model,in_place=False):
+def path(model,in_place=False,do_print=True,do_warnings=True):
     """ test evaluation of path """
 
     if in_place:
@@ -80,22 +92,27 @@ def path(model,in_place=False):
     model_._set_ini(ini_input='ss')
 
     # c. shock and unknowns
-    inputs = []
+    inputs = set()
 
     print('shocks: ',end='')
     for shock in model_.shocks:
 
         model_._set_shocks_ss()
         print(f'{shock} ',end='')
-        inputs.append(shock)
+        inputs.add(shock)
 
+        if np.isnan(path.__dict__[shock]).any():
+            if do_warnings: warnings.warn(f'warning: shock {shock} contains nan') 
 
     print('\nunknowns: ',end='')
     for unknown in model_.unknowns:
 
         model_._set_unknowns_ss()
         print(f'{unknown} ',end='')
-        inputs.append(unknown)
+        inputs.add(unknown)
+
+        if np.isnan(path.__dict__[unknown]).any():
+            if do_warnings: warnings.warn(f'warning: unknown {unknown} contains nan') 
 
     print('\n')
 
@@ -108,10 +125,9 @@ def path(model,in_place=False):
             model_.solve_hh_path()
             model_.simulate_hh_path()
 
-            for varname in model_.outputs_hh:
-                varname_ = f'{varname.upper()}_hh'
-                inputs.append(varname_)
-                print_varname_check(model_,varname_)
+            varnames = model.inputs_hh + model.inputs_hh_z 
+            outputnames = [f'{outputname.upper()}_hh' for outputname in model.outputs_hh]            
+            varnames += outputnames 
 
         else:
 
@@ -124,10 +140,14 @@ def path(model,in_place=False):
 
             model_.call_block(blockstr)
 
-            for varname in varnames:
-                if not varname in inputs:
-                    print_varname_check(model_,varname)
-                    inputs.append(varname)
+        for varname in varnames:
+
+            if not varname in inputs:
+                print_varname_check(model_,varname)
+                if np.isnan(path.__dict__[varname]).any():
+                    if do_warnings: warnings.warn(f'warning: variable {varname} contains nan (in {blockstr})')     
+                inputs.add(varname)
+        
 
 def jacs(model,s_list=None,dx=1e-4):
     """ test the computation of hh Jacobians with direct and fake news method, and the overall Jacobian"""
