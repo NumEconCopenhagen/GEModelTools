@@ -20,19 +20,24 @@ def ss(model,do_warnings=True):
         else:    
             print(f'{varname:15s}: {value:12.4f}')
 
-def hh_path(model,ylim=1e-4):
+def hh_path(model,in_place=False,ylim=1e-4):
     """ test household solution and simulation along path """
 
     print('note: inputs = steady state value -> expected: constant value (straigt line)\n')
 
-    par = model.par
-    ss = model.ss
-    path = model.path
+    if in_place:
+        model_ = model
+    else:
+        model_ = model.copy()
+
+    par = model_.par
+    ss = model_.ss
+    path = model_.path
 
     # a. solution and simulation hh along path
-    model._set_inputs_hh_all_ss()
-    model.solve_hh_path(do_print=True)
-    model.simulate_hh_path(do_print=True)
+    model_._set_inputs_hh_all_ss()
+    model_.solve_hh_path(do_print=True)
+    model_.simulate_hh_path(do_print=True)
 
     # b. show mean of each hh output
     with warnings.catch_warnings():
@@ -40,15 +45,15 @@ def hh_path(model,ylim=1e-4):
         warnings.simplefilter("ignore")
 
         print('')
-        fig = plt.figure(figsize=(6,len(model.outputs_hh)*4))
-        for i,outputname in enumerate(model.outputs_hh):
+        fig = plt.figure(figsize=(6,len(model_.outputs_hh)*4))
+        for i,outputname in enumerate(model_.outputs_hh):
             
             D = path.D
             pol = getattr(path,f'{outputname}')
             y = np.array([np.sum(D[t]*pol[t])for t in range(par.T)])
             y_ss = getattr(ss,f'{outputname.upper()}_hh')
 
-            ax = fig.add_subplot(len(model.outputs_hh),1,1+i)
+            ax = fig.add_subplot(len(model_.outputs_hh),1,1+i)
             ax.plot(np.arange(par.T),y-y_ss,'-')
             ax.set_yscale('symlog', linthresh=1e-8)
             Outputname_hh = f'{outputname.upper()}_hh'
@@ -122,11 +127,15 @@ def path(model,in_place=False,do_print=True,do_warnings=True):
 
             print('hh')
 
+            varnames = [inputname for inputname in  model_.inputs_hh_all]
+
+            for varname in varnames:
+                assert varname in inputs, f'{varname} not defined before hh block'
+                
             model_.solve_hh_path()
             model_.simulate_hh_path()
 
-            varnames = model.inputs_hh + model.inputs_hh_z 
-            outputnames = [f'{outputname.upper()}_hh' for outputname in model.outputs_hh]            
+            outputnames = [f'{outputname.upper()}_hh' for outputname in model_.outputs_hh]            
             varnames += outputnames 
 
         else:

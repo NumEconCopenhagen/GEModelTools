@@ -8,18 +8,25 @@ from .path import get_varnames
 def draw_DAG(model,figsize=(10,10),node_size=20_000,font_size=12,dpi=100,order=None,filename=None):
 
     # a. re-format blocks
-    all_inputs = []
+    all_inputs = set()
     for varname in model.shocks+model.unknowns:
-        all_inputs.append(varname)
+        all_inputs.add(varname)
 
     blockdict = {}
     for blockstr in model.blocks:
 
         if blockstr == 'hh':
+            
             name = 'hh'
-            inputs = [f'{varname.upper()}_hh' for varname in model.outputs_hh]
-            inputs += [varname for varname in model.inputs_hh_all]
+            inputs = [varname for varname in model.inputs_hh_all]
+
+            for varname in inputs:
+                assert varname in all_inputs, f'{varname} not defined before hh block'
+
+            inputs += [f'{varname.upper()}_hh' for varname in model.outputs_hh]
+
         else:
+            
             name = blockstr.split('.')[1]
             inputs = get_varnames(blockstr)   
 
@@ -37,7 +44,7 @@ def draw_DAG(model,figsize=(10,10),node_size=20_000,font_size=12,dpi=100,order=N
         blockdict[blockstr] = (name,inputs,outputs)
 
         for varname in outputs:
-            all_inputs.append(varname)
+            all_inputs.add(varname)
 
     # b. edges
     edges = []
