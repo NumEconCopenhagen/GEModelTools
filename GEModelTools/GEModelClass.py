@@ -44,7 +44,7 @@ class GEModelClass:
             print('settings:')
 
             print(f' {par.py_hh = }')
-            print(f' {par.py_block = }')
+            print(f' {par.py_blocks = }')
             print(f' {par.full_z_trans = }')
             print(f' {par.warnings = }')
             print(f' {par.T = }')
@@ -278,7 +278,7 @@ class GEModelClass:
         par.__dict__.setdefault('tol_simulate',1e-12)
         par.__dict__.setdefault('tol_broyden',1e-10)
         par.__dict__.setdefault('py_hh',True)
-        par.__dict__.setdefault('py_block',True)
+        par.__dict__.setdefault('py_blocks',True)
         par.__dict__.setdefault('full_z_trans',False)
         par.__dict__.setdefault('warnings',True)
 
@@ -486,7 +486,7 @@ class GEModelClass:
         
         # c. call
         with jit(self,show_exc=False) as model:
-            if self.par.py_block:
+            if self.par.py_blocks:
                 if hasattr(func,'py_func'):
                     func.py_func(model.par,model.ini,model.ss,**inputvars)
                 else:
