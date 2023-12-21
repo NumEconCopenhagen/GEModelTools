@@ -25,6 +25,8 @@ The main contributors are:
 - Emil Holst Partsch
 - Nicolai Waldstrøm
 - Yannik Winkelmann
+- Martin Andreas Kildemark 
+- Jacob Røpke
 
 Useful feedback has been provided especially by
 

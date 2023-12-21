@@ -23,7 +23,7 @@ def ss(model,do_warnings=True):
 def hh_path(model,in_place=False,ylim=1e-4):
     """ test household solution and simulation along path """
 
-    print('note: inputs = steady state value -> expected: constant value (straigt line)\n')
+    print('note: inputs = steady state value -> expected: constant value (straigt line) in roughly -10^-5 to 10^5\n')
 
     if in_place:
         model_ = model
@@ -72,14 +72,14 @@ def print_varname_check(model,varname):
         
         max_abs_val = np.max(np.abs(path.__dict__[varname][:,0]))
 
-        print(f' {varname:15s} {max_abs_val:8.1e} [target]')
+        print(f'  {varname:15s} {max_abs_val:8.1e} [target]')
 
     else:
 
         diff = path.__dict__[varname][:,0]-ss.__dict__[varname]
         max_abs_diff = np.max(np.abs(diff))
 
-        print(f' {varname:15s} {max_abs_diff:8.1e}')
+        print(f'  {varname:15s} {max_abs_diff:8.1e}')
 
 def path(model,in_place=False,do_print=True,do_warnings=True):
     """ test evaluation of path """
@@ -120,12 +120,12 @@ def path(model,in_place=False,do_print=True,do_warnings=True):
             if do_warnings: warnings.warn(f'warning: unknown {unknown} contains nan') 
 
     print('\n')
-
+    print(f'look at max(abs(path.VARNAME[:]-ss.VARNAME)):\n')
     for blockstr in model_.blocks:
 
         if blockstr == 'hh':
 
-            print('hh')
+            print(' hh')
 
             varnames = [inputname for inputname in  model_.inputs_hh_all]
 
@@ -140,7 +140,7 @@ def path(model,in_place=False,do_print=True,do_warnings=True):
 
         else:
 
-            print(blockstr)
+            print(f' {blockstr}')
 
             varnames = get_varnames(blockstr)
             for varname in varnames:

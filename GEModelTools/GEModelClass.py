@@ -387,6 +387,27 @@ class GEModelClass:
             for shockname in self.shocks:
                 self.IRF[(varname,shockname)] = np.repeat(np.nan,par.T)
 
+    def set_ss_to_nan(self):
+        """ clear steady state """
+
+        ss = self.ss
+        for varname in ss.__dict__.keys():
+
+            if np.isscalar(ss.__dict__[varname]):
+                ss.__dict__[varname] = np.nan
+            else:
+                if ss.__dict__[varname].dtype in [np.int_,np.int32,np.int64]:
+                    ss.__dict__[varname][:] = 0
+                else:
+                    ss.__dict__[varname][:] = np.nan
+
+    def set_path_to_nan(self):
+        """ clear path """
+
+        path = self.path
+        for varname in path.__dict__.keys():
+            path.__dict__[varname][:] = np.nan
+
     def compress_full(self):
         """ compress model - not working afterwards """
 
