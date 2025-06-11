@@ -26,7 +26,7 @@ def show_IRFs(models,labels,varnames,
     full_list = []
     if do_shocks: full_list.append(('shocks',[x for x in model.shocks]))
     full_list.append(('varnames',varnames))
-    if do_targets: full_list.append(('tagets',[x for x in model.targets]))
+    if do_targets: full_list.append(('targets',[x for x in model.targets]))
     
     # default fac = 1.0
     for (typename,varnames) in full_list:
